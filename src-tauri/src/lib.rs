@@ -23,6 +23,14 @@ fn get_network_stats(state: State<'_, AppState>) -> (u64, u64) {
     (total_rx, total_tx)
 }
 
+#[tauri::command]
+fn is_widget_visible(app: tauri::AppHandle) -> bool {
+    match app.get_webview_window("widget") {
+        Some(win) => win.is_visible().unwrap_or(false),
+        None => false,
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let networks = Networks::new_with_refreshed_list();
@@ -32,7 +40,7 @@ pub fn run() {
         .manage(AppState {
             networks: Mutex::new(networks),
         })
-        .invoke_handler(tauri::generate_handler![get_network_stats])
+        .invoke_handler(tauri::generate_handler![get_network_stats, is_widget_visible])
         .setup(|app| {
             if let Some(widget_window) = app.get_webview_window("widget") {
                 #[cfg(target_os = "windows")]

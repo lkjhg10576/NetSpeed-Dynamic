@@ -18,7 +18,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { emit } from '@tauri-apps/api/event'; // 新增事件导入
 import { getCurrentWindow, currentMonitor, PhysicalPosition } from '@tauri-apps/api/window';
 
 const uploadSpeed = ref('0 KB/s');
@@ -86,11 +85,9 @@ const adjustWindowPosition = async () => {
     } catch (error) {
         console.error('调整窗口位置失败:', error);
     } finally {
-        // 【已修复】这里必须是 finally，确保无论定位成功或失败，最后都一定会把窗口秀出来
+        // 这里必须是 finally，确保无论定位成功或失败，最后都一定会把窗口秀出来
         try {
             await getCurrentWindow().show();
-            // ✅ 关键：窗口真正显示后立即发射事件
-            await emit('widget_shown');
         } catch (e) {
             console.error(e);
         }
