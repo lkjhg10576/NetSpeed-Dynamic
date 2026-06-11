@@ -59,6 +59,18 @@
             <div class="card settings-card">
                 <h3>常规设置</h3>
 
+                <div class="setting-item flex-row-item">
+                    <div class="item-meta">
+                        <span class="item-title">显示模式</span>
+                        <span class="item-desc">切换亮色、暗色或跟随系统</span>
+                    </div>
+                    <select v-model="themeMode" class="theme-select" @change="handleThemeChange">
+                        <option value="light">浅色模式</option>
+                        <option value="dark">深色模式</option>
+                        <option value="system">跟随系统</option>
+                    </select>
+                </div>
+
                 <div class="setting-item is-disabled">
                     <div class="item-meta">
                         <span class="item-title">开机自动启动 <span class="tag-dev">未实现</span></span>
@@ -116,10 +128,14 @@ const isWidgetVisible = ref(false);
 const autoStart = ref(false);
 const opacity = ref(Number(localStorage.getItem('nsd_island_opacity') || '100'));
 
+// 主题状态：'light' | 'dark' | 'system'
+// 严格校验缓存值，如果不合法，强制回退到 'light'
+const savedTheme = localStorage.getItem('nsd_theme_mode') || 'light'; // 如果为 null 直接给 'light' 字符串
+const themeMode = ref(['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'light');
+
 const uploadSpeed = ref('0 B/s');
 const downloadSpeed = ref('0 B/s');
 
-// 统一的弹窗状态控制
 const dialog = ref({
     visible: false,
     title: 'NetSpeed Dynamic',
@@ -148,6 +164,7 @@ const parseVersion = (v: string) => {
 let lastRx = 0;
 let lastTx = 0;
 let speedTimer: number;
+let systemThemeMedia: MediaQueryList;
 
 const chartRef = ref<HTMLElement | null>(null);
 let chartInstance: any = null;
@@ -159,11 +176,26 @@ const formatSpeed = (bytes: number) => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB/s';
 };
 
+// 动态获取图表主色调线
+const getChartColors = () => {
+    const isDark = document.documentElement.classList.contains('dark-theme');
+    return {
+        line: isDark ? '#60a5fa' : '#3b82f6',
+        areaStart: isDark ? 'rgba(96, 165, 250, 0.4)' : 'rgba(59, 130, 246, 0.4)',
+        areaEnd: isDark ? 'rgba(96, 165, 250, 0.0)' : 'rgba(59, 130, 246, 0.0)'
+    };
+};
+
 const initChart = () => {
     if (!chartRef.value || !echarts) return;
     chartInstance = echarts.init(chartRef.value);
+    updateChartOption();
+};
 
-    const option = {
+const updateChartOption = () => {
+    if (!chartInstance) return;
+    const colors = getChartColors();
+    chartInstance.setOption({
         grid: { top: 5, bottom: 5, left: 0, right: 0 },
         xAxis: { type: 'category', boundaryGap: false, show: false },
         yAxis: { type: 'value', show: false, min: 0 },
@@ -173,17 +205,16 @@ const initChart = () => {
                 type: 'line',
                 smooth: true,
                 symbol: 'none',
-                lineStyle: { color: '#3b82f6', width: 2 },
+                lineStyle: { color: colors.line, width: 2 },
                 areaStyle: {
                     color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: 'rgba(59, 130, 246, 0.4)' },
-                        { offset: 1, color: 'rgba(59, 130, 246, 0.0)' }
+                        { offset: 0, color: colors.areaStart },
+                        { offset: 1, color: colors.areaEnd }
                     ]),
                 },
             },
         ],
-    };
-    chartInstance.setOption(option);
+    });
 };
 
 const fetchSpeedStats = async () => {
@@ -208,7 +239,6 @@ const fetchSpeedStats = async () => {
     }
 };
 
-// 【已升级】完美适配自定义 UI 的版本检测逻辑
 const checkUpdate = async () => {
     try {
         const localVersionStr = await getVersion();
@@ -263,6 +293,35 @@ const checkUpdate = async () => {
     }
 };
 
+// 主题切换核心逻辑
+const applyTheme = () => {
+    const root = document.documentElement;
+    if (themeMode.value === 'dark') {
+        root.classList.add('dark-theme');
+    } else if (themeMode.value === 'light') {
+        root.classList.remove('dark-theme');
+    } else if (themeMode.value === 'system') {
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        if (media.matches) {
+            root.classList.add('dark-theme');
+        } else {
+            root.classList.remove('dark-theme');
+        }
+    }
+    updateChartOption(); // 重新给 Echarts 染色
+};
+
+const handleThemeChange = () => {
+    localStorage.setItem('nsd_theme_mode', themeMode.value);
+    applyTheme();
+};
+
+const handleSystemThemeUpdate = () => {
+    if (themeMode.value === 'system') {
+        applyTheme();
+    }
+};
+
 watch(opacity, async (newVal) => {
     localStorage.setItem('nsd_island_opacity', newVal.toString());
     await emit('control-island-opacity', { opacity: newVal });
@@ -271,7 +330,12 @@ watch(opacity, async (newVal) => {
 onMounted(async () => {
     window.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-    }, { capture: true }); // 使用捕获模式，确保第一时间拦截
+    }, { capture: true });
+
+    // 初始化应用主题
+    applyTheme();
+    systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
+    systemThemeMedia.addEventListener('change', handleSystemThemeUpdate);
 
     initChart();
     fetchSpeedStats();
@@ -298,6 +362,7 @@ onMounted(async () => {
 onUnmounted(() => {
     clearInterval(speedTimer);
     chartInstance?.dispose();
+    systemThemeMedia?.removeEventListener('change', handleSystemThemeUpdate);
 });
 
 const toggleWidget = async () => {
@@ -308,18 +373,146 @@ const toggleWidget = async () => {
 </script>
 
 <style scoped>
-/* 全局样式基础重置 */
+/* ==========================================================================
+   1. 提取出的颜色变量层（默认全盘照抄原样式颜色，绝不动原来的色值）
+   ========================================================================== */
+:global(:root) {
+    --bg-body: #f8fafc;
+    --text-body: #1e293b;
+    --h1-color: #0f172a;
+    --subtitle-color: #64748b;
+    --control-bg: #ffffff;
+    --control-border: #e2e8f0;
+    --status-badge-inactive: #94a3b8;
+    --status-badge-active: #2b2b2b;
+    --divider-border: #e2e8f0;
+    --card-bg: #ffffff;
+    --card-border: #e2e8f0;
+    --card-shadow: rgba(0, 0, 0, 0.03);
+    --card-shadow-hover: rgba(0, 0, 0, 0.06);
+    --card-h3-color: #334155;
+    --arrow-up-bg: #eff6ff;
+    --arrow-up-color: #3b82f6;
+    --arrow-down-bg: #ecfdf5;
+    --arrow-down-color: #10b981;
+    --speed-label: #64748b;
+    --speed-value: #0f172a;
+    --chart-border: #f1f5f9;
+    --item-title-color: #1e293b;
+    --tag-dev-bg: #f1f5f9;
+    --tag-dev-color: #64748b;
+    --item-desc-color: #64748b;
+    --slider-bg: #cbd5e1;
+    --slider-checked-bg: #2b2b2b;
+    --slider-disabled-bg: #e2e8f0;
+    --range-bg: #e2e8f0;
+    --range-thumb-bg: #ffffff;
+    --range-thumb-border: #2b2b2b;
+    --range-thumb-shadow: rgba(0, 0, 0, 0.3);
+    --footer-text: #2b2b2b89;
+    --overlay-bg: rgba(15, 23, 42, 0.3);
+    --modal-bg: #ffffff;
+    --modal-border: #e2e8f0;
+    --modal-h4: #0f172a;
+    --modal-p: #64748b;
+    --btn-sec-bg: #f1f5f9;
+    --btn-sec-color: #64748b;
+    --btn-sec-border: #e2e8f0;
+    --btn-sec-hover-bg: #e2e8f0;
+    --btn-sec-hover-color: #334155;
+    --btn-pri-bg: #2b2b2b;
+    --btn-pri-color: #ffffff;
+    --btn-pri-border: #2b2b2b;
+    --btn-pri-hover-bg: #1a1a1a;
+    --btn-pri-shadow-hover: rgba(0, 0, 0, 0.15);
+
+    /* 新增下拉选择器在亮色下的专属变量 */
+    --select-bg: #ffffff;
+    --select-border: #e2e8f0;
+    --select-text: #1e293b;
+}
+
+/* ==========================================================================
+   2. 暗色模式变量覆盖（只有在这个类名下，才会用黑灰色覆盖上述变量）
+   ========================================================================== */
+:global(.dark-theme) {
+    --bg-body: #1e2021;
+    --text-body: #cbd5e1;
+    --h1-color: #f8fafc;
+    --subtitle-color: #94a3b8;
+    --control-bg: #1e293b;
+    --control-border: #334155;
+    --status-badge-inactive: #64748b;
+    --status-badge-active: #f8fafc;
+    --divider-border: #334155;
+    --card-bg: #1e293b;
+    --card-border: #334155;
+    --card-shadow: rgba(0, 0, 0, 0.2);
+    --card-shadow-hover: rgba(0, 0, 0, 0.3);
+    --card-h3-color: #e2e8f0;
+    --arrow-up-bg: rgba(59, 130, 246, 0.15);
+    --arrow-up-color: #60a5fa;
+    --arrow-down-bg: rgba(16, 185, 129, 0.15);
+    --arrow-down-color: #34d399;
+    --speed-label: #94a3b8;
+    --speed-value: #f8fafc;
+    --chart-border: #334155;
+    --item-title-color: #f8fafc;
+    --tag-dev-bg: #334155;
+    --tag-dev-color: #94a3b8;
+    --item-desc-color: #94a3b8;
+    --slider-bg: #475569;
+    --slider-checked-bg: #60a5fa;
+    --slider-disabled-bg: #334155;
+    --range-bg: #334155;
+    --range-thumb-bg: #1e293b;
+    --range-thumb-border: #60a5fa;
+    --range-thumb-shadow: rgba(0, 0, 0, 0.5);
+    --footer-text: #94a3b8aa;
+    --overlay-bg: rgba(0, 0, 0, 0.6);
+    --modal-bg: #1e293b;
+    --modal-border: #334155;
+    --modal-h4: #f8fafc;
+    --modal-p: #94a3b8;
+    --btn-sec-bg: #334155;
+    --btn-sec-color: #cbd5e1;
+    --btn-sec-border: #475569;
+    --btn-sec-hover-bg: #475569;
+    --btn-sec-hover-color: #f8fafc;
+    --btn-pri-bg: #60a5fa;
+    --btn-pri-color: #0f172a;
+    --btn-pri-border: #60a5fa;
+    --btn-pri-hover-bg: #93c5fd;
+    --btn-pri-shadow-hover: rgba(96, 165, 250, 0.3);
+
+    /* 下拉选择器在暗色下的变量 */
+    --select-bg: #1e293b;
+    --select-border: #334155;
+    --select-text: #f8fafc;
+}
+
+/* ==========================================================================
+   3. 原有布局及节点样式（全盘保留，不改任何一行 layout/padding/size）
+   ========================================================================== */
+/* 优化后的组件全局根样式 */
+:global(html) {
+    /* 变量由 html 层级掌控 */
+    color: var(--text-body);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
 :global(body) {
-    background-color: #f8fafc;
-    color: #1e293b;
+    background-color: transparent !important;
+    /* 强制透明，让 html 说了算 */
+    color: inherit;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
-    margin: 0;
-    padding: 0;
     user-select: none;
     -webkit-font-smoothing: antialiased;
 }
 
 .panel-container {
+    background-color: var(--bg-body);
+    /* 加上这一行，让它跟随主题变量 */
     padding: 28px 32px;
     max-width: 800px;
     margin: 0 auto;
@@ -353,12 +546,12 @@ const toggleWidget = async () => {
     margin: 0;
     font-weight: 700;
     letter-spacing: 0.2px;
-    color: #0f172a;
+    color: var(--h1-color);
 }
 
 .subtitle {
     font-size: 13px;
-    color: #64748b;
+    color: var(--subtitle-color);
     margin: 4px 0 0 0;
 }
 
@@ -366,27 +559,27 @@ const toggleWidget = async () => {
     display: flex;
     align-items: center;
     gap: 16px;
-    background: #ffffff;
+    background: var(--control-bg);
     padding: 8px 12px 8px 16px;
     border-radius: 24px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--control-border);
 }
 
 .status-badge {
     font-size: 13px;
     font-weight: 600;
-    color: #94a3b8;
+    color: var(--status-badge-inactive);
     transition: all 0.3s;
 }
 
 .status-badge.is-active {
-    color: #2b2b2b;
+    color: var(--status-badge-active);
 }
 
 .divider {
     border: none;
-    border-top: 1px solid #e2e8f0;
+    border-top: 1px solid var(--divider-border);
     margin-bottom: 24px;
 }
 
@@ -398,23 +591,23 @@ const toggleWidget = async () => {
 }
 
 .card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
     border-radius: 20px;
     padding: 24px;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 20px -2px var(--card-shadow);
     transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .card:hover {
-    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 24px -4px var(--card-shadow-hover);
 }
 
 .card h3 {
     font-size: 15px;
-    color: #334155;
+    color: var(--card-h3-color);
     margin: 0 0 20px 0;
     font-weight: 600;
 }
@@ -449,13 +642,13 @@ const toggleWidget = async () => {
 }
 
 .arrow.up {
-    background: #eff6ff;
-    color: #3b82f6;
+    background: var(--arrow-up-bg);
+    color: var(--arrow-up-color);
 }
 
 .arrow.down {
-    background: #ecfdf5;
-    color: #10b981;
+    background: var(--arrow-down-bg);
+    color: var(--arrow-down-color);
 }
 
 .speed-info {
@@ -466,7 +659,7 @@ const toggleWidget = async () => {
 
 .speed-info .label {
     font-size: 12px;
-    color: #64748b;
+    color: var(--speed-label);
     font-weight: 500;
 }
 
@@ -474,17 +667,16 @@ const toggleWidget = async () => {
     font-size: 18px;
     font-weight: 700;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    color: #0f172a;
+    color: var(--speed-value);
     letter-spacing: -0.5px;
 }
 
-/* 波动图表 Canvas 容器 */
 .mini-chart {
     width: 100%;
     height: 80px;
     margin-top: auto;
     padding-top: 16px;
-    border-top: 1px solid #f1f5f9;
+    border-top: 1px solid var(--chart-border);
 }
 
 .setting-item {
@@ -492,7 +684,7 @@ const toggleWidget = async () => {
     justify-content: space-between;
     align-items: center;
     padding: 16px 0;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--chart-border);
 }
 
 .setting-item:last-child {
@@ -506,6 +698,12 @@ const toggleWidget = async () => {
     gap: 16px;
 }
 
+/* 兼容新增的主题单选行布局 */
+.flex-row-item {
+    flex-direction: row;
+    align-items: center;
+}
+
 .item-meta {
     display: flex;
     flex-direction: column;
@@ -515,7 +713,7 @@ const toggleWidget = async () => {
 .item-title {
     font-size: 14px;
     font-weight: 600;
-    color: #1e293b;
+    color: var(--item-title-color);
     display: flex;
     align-items: center;
     gap: 8px;
@@ -523,8 +721,8 @@ const toggleWidget = async () => {
 
 .tag-dev {
     font-size: 10px;
-    background: #f1f5f9;
-    color: #64748b;
+    background: var(--tag-dev-bg);
+    color: var(--tag-dev-color);
     padding: 2px 6px;
     border-radius: 4px;
     font-weight: normal;
@@ -532,7 +730,7 @@ const toggleWidget = async () => {
 
 .item-desc {
     font-size: 13px;
-    color: #64748b;
+    color: var(--item-desc-color);
 }
 
 .is-disabled {
@@ -560,7 +758,7 @@ const toggleWidget = async () => {
     left: 0;
     right: 0;
     bottom: 0;
-    background-color: #cbd5e1;
+    background-color: var(--slider-bg);
     transition: 0.4s cubic-bezier(0.4, 0.0, 0.2, 1);
     border-radius: 28px;
 }
@@ -579,7 +777,7 @@ const toggleWidget = async () => {
 }
 
 input:checked+.slider {
-    background-color: #2b2b2b;
+    background-color: var(--slider-checked-bg);
 }
 
 input:checked+.slider:before {
@@ -587,7 +785,7 @@ input:checked+.slider:before {
 }
 
 input:disabled+.slider {
-    background-color: #e2e8f0;
+    background-color: var(--slider-disabled-bg);
     cursor: not-allowed;
 }
 
@@ -595,7 +793,7 @@ input:disabled+.slider {
     width: 100%;
     -webkit-appearance: none;
     appearance: none;
-    background: #e2e8f0;
+    background: var(--range-bg);
     height: 6px;
     border-radius: 3px;
     outline: none;
@@ -606,10 +804,10 @@ input:disabled+.slider {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #ffffff;
-    border: 2px solid #2b2b2b;
+    background: var(--range-thumb-bg);
+    border: 2px solid var(--range-thumb-border);
     cursor: pointer;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 2px 6px var(--range-thumb-shadow);
     transition: transform 0.1s;
 }
 
@@ -622,29 +820,28 @@ input:disabled+.slider {
     display: flex;
     justify-content: space-between;
     font-size: 12px;
-    color: #2b2b2b89;
+    color: var(--footer-text);
     font-weight: 500;
 }
 
 .action-link {
-    color: #2b2b2b89;
+    color: var(--footer-text);
     cursor: pointer;
     transition: color 0.2s;
 }
 
 .action-link:hover {
-    color: #2b2b2b89;
+    color: var(--footer-text);
     text-decoration: underline;
 }
 
-/* 自定义弹窗核心样式 */
 .modal-overlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(15, 23, 42, 0.3);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -652,8 +849,8 @@ input:disabled+.slider {
 }
 
 .modal-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
+    background: var(--modal-bg);
+    border: 1px solid var(--modal-border);
     border-radius: 20px;
     width: 360px;
     padding: 24px;
@@ -664,13 +861,13 @@ input:disabled+.slider {
     margin: 0 0 12px 0;
     font-size: 16px;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--modal-h4);
 }
 
 .modal-body p {
     margin: 0 0 24px 0;
     font-size: 14px;
-    color: #64748b;
+    color: var(--modal-p);
     line-height: 1.5;
 }
 
@@ -680,7 +877,6 @@ input:disabled+.slider {
     gap: 12px;
 }
 
-/* 按钮组样式，呼应你的页面 input:checked 的纯黑科技风 */
 .btn {
     padding: 8px 18px;
     font-size: 13px;
@@ -692,29 +888,27 @@ input:disabled+.slider {
 }
 
 .btn-secondary {
-    background: #f1f5f9;
-    color: #64748b;
-    border: 1px solid #e2e8f0;
+    background: var(--btn-sec-bg);
+    color: var(--btn-sec-color);
+    border: 1px solid var(--btn-sec-border);
 }
 
 .btn-secondary:hover {
-    background: #e2e8f0;
-    color: #334155;
+    background: var(--btn-sec-hover-bg);
+    color: var(--btn-sec-hover-color);
 }
 
 .btn-primary {
-    background: #2b2b2b;
-    /* 对应你代码中开关按钮的黑色 */
-    color: #ffffff;
-    border: 1px solid #2b2b2b;
+    background: var(--btn-pri-bg);
+    color: var(--btn-pri-color);
+    border: 1px solid var(--btn-pri-border);
 }
 
 .btn-primary:hover {
-    background: #1a1a1a;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: var(--btn-pri-hover-bg);
+    box-shadow: 0 4px 12px var(--btn-pri-shadow-hover);
 }
 
-/* 弹窗渐变动效 */
 .fade-enter-active,
 .fade-leave-active {
     transition: opacity 0.25s ease, transform 0.25s ease;
@@ -731,5 +925,25 @@ input:disabled+.slider {
 
 .fade-leave-to .modal-card {
     transform: scale(0.95);
+}
+
+/* ==========================================================================
+   4. 新增的下拉选择框 UI 样式（保持和整体视觉风格契合）
+   ========================================================================== */
+.theme-select {
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 600;
+    border-radius: 8px;
+    background-color: var(--select-bg);
+    border: 1px solid var(--select-border);
+    color: var(--select-text);
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.theme-select:hover {
+    border-color: var(--slider-checked-bg);
 }
 </style>
