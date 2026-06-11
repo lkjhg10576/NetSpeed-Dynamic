@@ -11,7 +11,7 @@
                 <span class="value">{{ downloadSpeed }}</span>
             </div>
         </div>
-        <div :class="['status-dot', isLagging ? 'lag' : 'good']"></div>
+        <div :class="['status-dot', networkStatus]"></div>
     </div>
 </template>
 
@@ -22,11 +22,14 @@ import { getCurrentWindow, currentMonitor, PhysicalPosition } from '@tauri-apps/
 
 const uploadSpeed = ref('0 KB/s');
 const downloadSpeed = ref('0 KB/s');
-const isLagging = ref(false);
+
+// 网络状态指示灯：good(绿), warning(黄), error(红)
+const networkStatus = ref<'good' | 'warning' | 'error'>('good');
 
 let lastRx = 0;
 let lastTx = 0;
-let timer: number;
+let speedTimer: number;
+let pingTimer: number;
 
 const formatSpeed = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B/s';
@@ -34,58 +37,61 @@ const formatSpeed = (bytes: number) => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB/s';
 };
 
-const fetchStats = async () => {
+// 任务一：纯粹计算流量数字，绝不插手任何状态灯的颜色改变
+const fetchSpeedStats = async () => {
     try {
         const [currentRx, currentTx] = await invoke<[number, number]>('get_network_stats');
         if (lastRx !== 0) {
-            const rxDiff = currentRx - lastRx;
-            const txDiff = currentTx - lastTx;
-            downloadSpeed.value = formatSpeed(rxDiff);
-            uploadSpeed.value = formatSpeed(txDiff);
-            isLagging.value = rxDiff < 100 && txDiff < 100 ? Math.random() > 0.95 : false;
+            downloadSpeed.value = formatSpeed(currentRx - lastRx);
+            uploadSpeed.value = formatSpeed(currentTx - lastTx);
         }
         lastRx = currentRx;
         lastTx = currentTx;
     } catch (error) {
-        console.error('网速获取失败:', error);
+        console.error('流量获取失败:', error);
     }
 };
 
-// 完美适配全分辨率、全缩放率（如 150%）的无缝居中算法
+// 任务二：纯粹通过真实延迟控制状态灯
+const checkNetworkLatency = async () => {
+    try {
+        const latency = await invoke<number>('get_network_latency');
+
+        // 只要能拿到延迟数字，就说明网络肯定是通的（绝不可能是红灯）
+        if (latency < 150) {
+            networkStatus.value = 'good';      // 延迟优秀，绿色
+        } else {
+            networkStatus.value = 'warning';   // 延迟高/不稳定，黄色
+        }
+    } catch (error) {
+        // 只有当 Rust 端抛出异常（即 TcpStream 连接超时 1.5 秒或彻底断开）时，才变红
+        networkStatus.value = 'error';         // 真正没网，红色
+    }
+};
+
 const adjustWindowPosition = async () => {
     try {
         const appWindow = getCurrentWindow();
-
-        // 等待 Windows DWM 与 WebView2 完成 DPI 握手
         await new Promise((resolve) => setTimeout(resolve, 150));
-
         const monitor = await currentMonitor();
 
         if (monitor) {
             const scaleFactor = await appWindow.scaleFactor();
-
-            // 获取当前屏幕的【物理像素】总宽度和起跑线 X/Y 坐标
             const monitorWidthPhysical = monitor.size.width;
             const monitorLeftPhysical = monitor.position.x;
             const monitorTopPhysical = monitor.position.y;
 
-            // 直接向系统索要当前窗口的真实【物理尺寸】
             const windowSize = await appWindow.innerSize();
             const windowWidthPhysical = windowSize.width;
 
-            // 在纯物理像素世界里进行绝对居中计算
             const x = monitorLeftPhysical + (monitorWidthPhysical - windowWidthPhysical) / 2;
-
-            // 距离顶部留出 12px 的逻辑高度，同样转换为物理高度
             const y = monitorTopPhysical + (12 * scaleFactor);
 
-            // 使用 PhysicalPosition 物理坐标定死位置
             await appWindow.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
         }
     } catch (error) {
         console.error('调整窗口位置失败:', error);
     } finally {
-        // 这里必须是 finally，确保无论定位成功或失败，最后都一定会把窗口秀出来
         try {
             await getCurrentWindow().show();
         } catch (e) {
@@ -96,17 +102,22 @@ const adjustWindowPosition = async () => {
 
 onMounted(async () => {
     await adjustWindowPosition();
-    fetchStats();
-    timer = setInterval(fetchStats, 1000) as unknown as number;
+
+    fetchSpeedStats();
+    checkNetworkLatency();
+
+    // 流量 1 秒刷一次保证数字灵敏度；延迟 2.5 秒检测一次，避免高频握手本身对带宽造成干扰
+    speedTimer = setInterval(fetchSpeedStats, 1000) as unknown as number;
+    pingTimer = setInterval(checkNetworkLatency, 2500) as unknown as number;
 });
 
 onUnmounted(() => {
-    clearInterval(timer);
+    clearInterval(speedTimer);
+    clearInterval(pingTimer);
 });
 </script>
 
 <style scoped>
-/* 斩断一切 webview 默认边框和溢出 */
 *,
 *::before,
 *::after {
@@ -115,11 +126,9 @@ onUnmounted(() => {
     outline: none !important;
 }
 
-/* 添加：强制隐藏可能泄露的系统元素 */
 :root {
     -webkit-app-region: drag;
 }
-
 
 :global(html),
 :global(body) {
@@ -131,16 +140,13 @@ onUnmounted(() => {
     border: none !important;
 }
 
-/* 灵动岛核心样式 - 干净利落的果味胶囊 */
 .island-container {
     position: absolute;
     top: 0;
     left: 0;
-    /* 确保完全覆盖窗口 */
     width: 100% !important;
     height: 100% !important;
     background: rgba(0, 0, 0, 0.95);
-    /* 调深色调，全面隐匿可能存在的边缘缝隙 */
     backdrop-filter: blur(20px);
     border-radius: 18px;
     display: flex;
@@ -198,13 +204,21 @@ onUnmounted(() => {
     width: 6px;
     height: 6px;
     border-radius: 50%;
+    transition: background-color 0.4s ease;
 }
 
 .good {
     background-color: #34C759;
+    /* 绿 */
 }
 
-.lag {
+.warning {
+    background-color: #FFCC00;
+    /* 黄 */
+}
+
+.error {
     background-color: #FF3B30;
+    /* 红 */
 }
 </style>

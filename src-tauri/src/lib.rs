@@ -2,6 +2,8 @@ use std::sync::Mutex;
 use tauri::State;
 use tauri::Manager;
 use sysinfo::Networks;
+use std::net::{SocketAddr, TcpStream};
+use std::time::{Duration, Instant};
 
 struct AppState {
     networks: Mutex<Networks>,
@@ -23,6 +25,24 @@ fn get_network_stats(state: State<'_, AppState>) -> (u64, u64) {
     (total_rx, total_tx)
 }
 
+// 新增：测量真实网络延迟的命令
+#[tauri::command]
+fn get_network_latency() -> Result<u128, String> {
+    // 采用国内非常稳定的阿里云公共 DNS 进行 TCP 握手测试 (端口 53)
+    // 如果你面向海外用户，可以换成 "1.1.1.1:53" 或 "8.8.8.8:53"
+    let addr: SocketAddr = "223.5.5.5:53".parse().unwrap();
+    let timeout = Duration::from_millis(1500); // 1.5秒超时即视为断网或极度卡顿
+
+    let start = Instant::now();
+    match TcpStream::connect_timeout(&addr, timeout) {
+        Ok(_) => {
+            let elapsed = start.elapsed().as_millis();
+            Ok(elapsed)
+        }
+        Err(_) => Err("Timeout or disconnected".to_string()),
+    }
+}
+
 #[tauri::command]
 fn is_widget_visible(app: tauri::AppHandle) -> bool {
     match app.get_webview_window("widget") {
@@ -40,7 +60,11 @@ pub fn run() {
         .manage(AppState {
             networks: Mutex::new(networks),
         })
-        .invoke_handler(tauri::generate_handler![get_network_stats, is_widget_visible])
+        .invoke_handler(tauri::generate_handler![
+            get_network_stats, 
+            is_widget_visible, 
+            get_network_latency
+        ])
         .setup(|app| {
             if let Some(widget_window) = app.get_webview_window("widget") {
                 #[cfg(target_os = "windows")]
