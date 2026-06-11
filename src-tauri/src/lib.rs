@@ -1,9 +1,12 @@
 use std::sync::Mutex;
-use tauri::State;
-use tauri::Manager;
+use tauri::{State, Manager};
 use sysinfo::Networks;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
+
+// 引入托盘相关组件
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
 
 struct AppState {
     networks: Mutex<Networks>,
@@ -25,13 +28,10 @@ fn get_network_stats(state: State<'_, AppState>) -> (u64, u64) {
     (total_rx, total_tx)
 }
 
-// 新增：测量真实网络延迟的命令
 #[tauri::command]
 fn get_network_latency() -> Result<u128, String> {
-    // 采用国内非常稳定的阿里云公共 DNS 进行 TCP 握手测试 (端口 53)
-    // 如果你面向海外用户，可以换成 "1.1.1.1:53" 或 "8.8.8.8:53"
     let addr: SocketAddr = "223.5.5.5:53".parse().unwrap();
-    let timeout = Duration::from_millis(1500); // 1.5秒超时即视为断网或极度卡顿
+    let timeout = Duration::from_millis(1500);
 
     let start = Instant::now();
     match TcpStream::connect_timeout(&addr, timeout) {
@@ -56,6 +56,8 @@ pub fn run() {
     let networks = Networks::new_with_refreshed_list();
 
     tauri::Builder::default()
+        // 1. 【唯一实例保证】初始化单实例插件。如果重复启动，直接退出进程
+        .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             networks: Mutex::new(networks),
@@ -66,6 +68,48 @@ pub fn run() {
             get_network_latency
         ])
         .setup(|app| {
+            // 2. 【系统托盘右键菜单】仅创建一个 "强制退出" 按钮
+            let quit_item = MenuItem::with_id(app, "quit", "强制退出", true, None::<&str>)?;
+            let tray_menu = Menu::with_items(app, &[&quit_item])?;
+
+            // 3. 【构建系统托盘】
+            let _tray = TrayIconBuilder::new()
+                .icon(app.default_window_icon().unwrap().clone()) // 使用默认图标
+                .menu(&tray_menu)
+                .on_menu_event(move |_app_handle, event| {
+                    if event.id == "quit" {
+                        // 点击“强制退出”时：强杀进程完全退出
+                        std::process::exit(0);
+                    }
+                })
+                .on_tray_icon_event(|tray, event| {
+                    // 当点击系统托盘图标时
+                    if let TrayIconEvent::Click { button: MouseButton::Left, .. } = event {
+                        let app_handle = tray.app_handle();
+                        // 寻找主控制台窗口
+                        if let Some(main_window) = app_handle.get_webview_window("main") {
+                            let _ = main_window.show();     // 显示窗口
+                            let _ = main_window.unminimize(); // 取消最小化
+                            let _ = main_window.set_focus();  // 聚焦窗口
+                        }
+                    }
+                })
+                .build(app)?;
+
+            // 4. 【拦截控制台关闭事件】使其点击关闭时隐藏而不是真的退出
+            if let Some(main_window) = app.get_webview_window("main") {
+                let w_clone = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        // 阻止窗口真正关闭
+                        api.prevent_close();
+                        // 使用克隆的窗口句柄来将其隐藏
+                        let _ = w_clone.hide();
+                    }
+                });
+            }
+
+            // 5. 灵动岛(Widget)的原有 Windows 样式裁剪逻辑
             if let Some(widget_window) = app.get_webview_window("widget") {
                 #[cfg(target_os = "windows")]
                 {
@@ -80,23 +124,19 @@ pub fn run() {
                         SetWindowRgn,
                     };
                     use windows_sys::Win32::UI::WindowsAndMessaging::{
-                        GetWindowRect,  // ← 关键：获取完整窗口尺寸
+                        GetWindowRect,
                         SetWindowLongPtrW,
                         GWL_STYLE,
-                        WS_CAPTION,     // ← 关键：禁用系统标题栏
+                        WS_CAPTION,
                     };
                     use windows_sys::Win32::Foundation::{HWND, RECT};
 
                     if let Ok(hwnd) = widget_window.hwnd() {
                         let hwnd_raw = hwnd.0 as HWND;
                         unsafe {
-                            // ① 【彻底干掉系统标题栏】
-                            use windows_sys::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW;
+                            let current_style = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd_raw, GWL_STYLE);
+                            SetWindowLongPtrW(hwnd_raw, GWL_STYLE, current_style & !(WS_CAPTION as isize));
 
-                            let style = GetWindowLongPtrW(hwnd_raw, GWL_STYLE);
-                            SetWindowLongPtrW(hwnd_raw, GWL_STYLE, style & !(WS_CAPTION as isize));
-
-                            // ② 【干掉边框】
                             let border_color: u32 = 0xFFFFFFFE;
                             let _ = DwmSetWindowAttribute(
                                 hwnd_raw,
@@ -105,7 +145,6 @@ pub fn run() {
                                 std::mem::size_of::<u32>() as u32,
                             );
 
-                            // ③ 【干掉DWM圆角和阴影】
                             let corner_preference = DWMWCP_DONOTROUND;
                             let _ = DwmSetWindowAttribute(
                                 hwnd_raw,
@@ -114,16 +153,11 @@ pub fn run() {
                                 std::mem::size_of::<i32>() as u32,
                             );
 
-                            // ④ 【正确获取物理尺寸】
-                            //    GetWindowRect → 获取整个窗口物理尺寸（包含非客户区）
-                            //    GetClientRect → 仅客户区尺寸（会导致偏移）        
                             let mut rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
                             GetWindowRect(hwnd_raw, &mut rect);
                             let w = rect.right - rect.left;
                             let h = rect.bottom - rect.top;
 
-                            // ⑤ 【正确裁剪】
-                            //    圆角 = 高度（保证胶囊形）
                             let corner = h;
                             let region = CreateRoundRectRgn(0, 0, w, h, corner, corner);
                             if !region.is_null() {

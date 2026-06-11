@@ -15,15 +15,15 @@
     "core:webview:allow-webview-show",
     "core:webview:allow-webview-hide",
     "core:window:allow-get-all-windows",
-    
     "core:window:allow-current-monitor",
     "core:window:allow-scale-factor",
     "core:window:allow-inner-size",
     "core:window:allow-set-position",
-    
     "core:menu:allow-new",
     "core:menu:allow-append",
     "core:menu:allow-popup",
-    "core:window:allow-start-dragging"
+    "core:window:allow-start-dragging",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-focus"
   ]
 }
