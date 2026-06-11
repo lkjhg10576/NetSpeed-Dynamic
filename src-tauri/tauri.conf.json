@@ -18,6 +18,7 @@
         "height": 550,
         "resizable": false,
         "center": true,
+        "maximized": false,
         "label": "main",
         "url": "/"
       },
@@ -30,6 +31,7 @@
         "transparent": true,
         "alwaysOnTop": true,
         "visible": false,
+        "maximized": false,
         "skipTaskbar": true,
         "shadow": false,
         "label": "widget",

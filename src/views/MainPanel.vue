@@ -62,7 +62,7 @@
                 <div class="setting-item is-disabled">
                     <div class="item-meta">
                         <span class="item-title">开机自动启动 <span class="tag-dev">未实现</span></span>
-                        <span class="item-desc">跟随系统启动 NetSpeed</span>
+                        <span class="item-desc">跟随系统启动 NSD</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" v-model="autoStart" disabled>
