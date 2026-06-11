@@ -269,7 +269,7 @@ const checkUpdate = async () => {
         });
 
         if (response.status === 404) {
-            showDialog('检查更新', '未找到可用发行版');
+            showDialog('检查更新', '未找到可用版本');
             return;
         }
 
@@ -360,7 +360,7 @@ onMounted(async () => {
     speedTimer = setInterval(fetchSpeedStats, 1000) as unknown as number;
     window.addEventListener('resize', () => chartInstance?.resize());
 
-    // --- 新增：初始化时获取真实的自启动状态 ---
+    // 初始化时获取真实的自启动状态
     try {
         autoStart.value = await isEnabled();
     } catch (e) {
@@ -428,7 +428,7 @@ const toggleWidget = async () => {
     --tag-dev-color: #64748b;
     --item-desc-color: #64748b;
     --slider-bg: #cbd5e1;
-    --slider-checked-bg: #2b2b2b;
+    --slider-checked-bg: #b9b9b9;
     --slider-disabled-bg: #e2e8f0;
     --range-bg: #e2e8f0;
     --range-thumb-bg: #ffffff;
@@ -481,15 +481,15 @@ const toggleWidget = async () => {
     --arrow-down-color: #34d399;
     --speed-label: #94a3b8;
     --speed-value: #f8fafc;
-    --chart-border: #334155;
+    --chart-border: #474c53;
     --item-title-color: #f8fafc;
     --tag-dev-bg: #334155;
     --tag-dev-color: #94a3b8;
     --item-desc-color: #94a3b8;
     --slider-bg: #475569;
-    --slider-checked-bg: #47576b;
+    --slider-checked-bg: #5d646d;
     --slider-disabled-bg: #334155;
-    --range-bg: #334155;
+    --range-bg: #42474e;
     --range-thumb-bg: #1e293b;
     --range-thumb-border: #60a5fa;
     --range-thumb-shadow: rgba(0, 0, 0, 0.5);
