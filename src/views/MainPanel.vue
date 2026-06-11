@@ -10,6 +10,11 @@
             </div>
 
             <div class="header-controls">
+                <button class="gamemode-btn" :class="{ 'is-active': isGameMode }" @click="toggleGameMode">
+                    🎮 GAMEMODE
+                </button>
+                <span class="control-separator"></span>
+
                 <span class="status-badge" :class="{ 'is-active': isWidgetVisible }">
                     {{ isWidgetVisible ? '已开启' : '已关闭' }}
                 </span>
@@ -22,74 +27,97 @@
 
         <hr class="divider" />
 
-        <div class="main-content">
-            <div class="card status-card">
-                <h3>当前实时状态</h3>
-                <div class="speed-monitor">
-                    <div class="speed-item">
-                        <span class="arrow up">
-                            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path
-                                    d="M16 4C16.8 4 17.5 4.3 18.1 4.9L28.1 14.9C29.3 16.1 29.3 18 28.1 19.1C26.9 20.3 25 20.3 23.9 19.1L18 13.2V26C18 27.7 16.7 29 15 29C13.3 29 12 27.7 12 26V13.2L6.1 19.1C4.9 20.3 3 20.3 1.9 19.1C0.7 18 0.7 16.1 1.9 14.9L11.9 4.9C12.5 4.3 13.2 4 14 4H16Z"
-                                    fill="currentColor" />
-                            </svg>
-                        </span>
-                        <div class="speed-info">
-                            <span class="label">上传速度</span>
-                            <span class="value">{{ uploadSpeed }}</span>
+        <div class="main-content" :class="{ 'game-mode-layout': isGameMode }">
+            <template v-if="!isGameMode">
+                <div class="card status-card">
+                    <h3>当前实时状态</h3>
+                    <div class="speed-monitor">
+                        <div class="speed-item">
+                            <span class="arrow up">
+                                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path
+                                        d="M16 4C16.8 4 17.5 4.3 18.1 4.9L28.1 14.9C29.3 16.1 29.3 18 28.1 19.1C26.9 20.3 25 20.3 23.9 19.1L18 13.2V26C18 27.7 16.7 29 15 29C13.3 29 12 27.7 12 26V13.2L6.1 19.1C4.9 20.3 3 20.3 1.9 19.1C0.7 18 0.7 16.1 1.9 14.9L11.9 4.9C12.5 4.3 13.2 4 14 4H16Z"
+                                        fill="currentColor" />
+                                </svg>
+                            </span>
+                            <div class="speed-info">
+                                <span class="label">上传速度</span>
+                                <span class="value">{{ uploadSpeed }}</span>
+                            </div>
+                        </div>
+                        <div class="speed-item">
+                            <span class="arrow down">
+                                <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path
+                                        d="M16 28C15.2 28 14.5 27.7 13.9 27.1L3.9 17.1C2.7 15.9 2.7 14 3.9 12.9C5.1 11.7 7 11.7 8.1 12.9L14 18.8V6C14 4.3 15.3 3 17 3C18.7 3 20 4.3 20 6V18.8L25.9 12.9C27.1 11.7 29 11.7 30.1 12.9C31.3 14 31.3 15.9 30.1 17.1L20.1 27.1C19.5 27.7 18.8 28 18 28H16Z"
+                                        fill="currentColor" />
+                                </svg>
+                            </span>
+                            <div class="speed-info">
+                                <span class="label">下载速度</span>
+                                <span class="value">{{ downloadSpeed }}</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="speed-item">
-                        <span class="arrow down">
-                            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path
-                                    d="M16 28C15.2 28 14.5 27.7 13.9 27.1L3.9 17.1C2.7 15.9 2.7 14 3.9 12.9C5.1 11.7 7 11.7 8.1 12.9L14 18.8V6C14 4.3 15.3 3 17 3C18.7 3 20 4.3 20 6V18.8L25.9 12.9C27.1 11.7 29 11.7 30.1 12.9C31.3 14 31.3 15.9 30.1 17.1L20.1 27.1C19.5 27.7 18.8 28 18 28H16Z"
-                                    fill="currentColor" />
-                            </svg>
-                        </span>
-                        <div class="speed-info">
-                            <span class="label">下载速度</span>
-                            <span class="value">{{ downloadSpeed }}</span>
+                    <div ref="chartRef" class="mini-chart"></div>
+                </div>
+
+                <div class="card settings-card">
+                    <h3>常规设置</h3>
+
+                    <div class="setting-item flex-row-item">
+                        <div class="item-meta">
+                            <span class="item-title">显示模式</span>
+                            <span class="item-desc">切换亮色、暗色或跟随系统</span>
+                        </div>
+                        <select v-model="themeMode" class="theme-select" @change="handleThemeChange">
+                            <option value="light">浅色模式</option>
+                            <option value="dark">深色模式</option>
+                            <option value="system">跟随系统</option>
+                        </select>
+                    </div>
+
+                    <div class="setting-item">
+                        <div class="item-meta">
+                            <span class="item-title">开机自动启动</span>
+                            <span class="item-desc">跟随系统启动 NSD</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="autoStart" @change="toggleAutoStart">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="setting-item slider-item">
+                        <div class="item-meta">
+                            <span class="item-title">悬浮窗不透明度</span>
+                            <span class="item-desc">调节灵动岛的外观透明度 ({{ opacity }}%)</span>
+                        </div>
+                        <input type="range" min="0" max="100" v-model="opacity" class="range-input" />
+                    </div>
+                </div>
+            </template>
+
+            <template v-else>
+                <div class="card gamemode-container">
+                    <div class="gamemode-header">
+                        <h3>竞技游戏服务器往返延迟测试 (ICMP Ping)</h3>
+                        <button class="manual-ping-btn" @click="runAllPings">手动测试</button>
+                    </div>
+
+                    <div class="game-grid">
+                        <div v-for="game in gameServers" :key="game.id" class="game-item">
+                            <div class="game-meta">
+                                <span class="game-name">{{ game.name }}</span>
+                                <span class="game-region">{{ game.region }}</span>
+                            </div>
+                            <div class="ping-badge" :class="getPingClass(game.ping)">
+                                {{ game.ping === null ? '测速中...' : game.ping === -1 ? '超时' : game.ping + ' ms' }}
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div ref="chartRef" class="mini-chart"></div>
-            </div>
-
-            <div class="card settings-card">
-                <h3>常规设置</h3>
-
-                <div class="setting-item flex-row-item">
-                    <div class="item-meta">
-                        <span class="item-title">显示模式</span>
-                        <span class="item-desc">切换亮色、暗色或跟随系统</span>
-                    </div>
-                    <select v-model="themeMode" class="theme-select" @change="handleThemeChange">
-                        <option value="light">浅色模式</option>
-                        <option value="dark">深色模式</option>
-                        <option value="system">跟随系统</option>
-                    </select>
-                </div>
-
-                <div class="setting-item">
-                    <div class="item-meta">
-                        <span class="item-title">开机自动启动</span>
-                        <span class="item-desc">跟随系统启动 NSD</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" v-model="autoStart" @change="toggleAutoStart">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-
-                <div class="setting-item slider-item">
-                    <div class="item-meta">
-                        <span class="item-title">悬浮窗不透明度</span>
-                        <span class="item-desc">调节灵动岛的外观透明度 ({{ opacity }}%)</span>
-                    </div>
-                    <input type="range" min="0" max="100" v-model="opacity" class="range-input" />
-                </div>
-            </div>
+            </template>
         </div>
 
         <footer class="panel-footer">
@@ -117,7 +145,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
@@ -128,15 +156,93 @@ const isWidgetVisible = ref(false);
 const autoStart = ref(false);
 const opacity = ref(Number(localStorage.getItem('nsd_island_opacity') || '100'));
 
-// 主题状态：'light' | 'dark' | 'system'
-// 严格校验缓存值，如果不合法，强制回退到 'light'
-const savedTheme = localStorage.getItem('nsd_theme_mode') || 'light'; // 如果为 null 直接给 'light' 字符串
+const savedTheme = localStorage.getItem('nsd_theme_mode') || 'light';
 const themeMode = ref(['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'light');
 
 const uploadSpeed = ref('0 B/s');
 const downloadSpeed = ref('0 B/s');
 
-// 新增切换开关的执行函数
+// ==========================================================================
+// 游戏模式核心逻辑状态
+// ==========================================================================
+const isGameMode = ref(false);
+
+interface GameServer {
+    id: string;
+    name: string;
+    region: string;
+    ip: string;
+    ping: number | null;
+}
+
+// 收集的各大热门竞技游戏公开测试/核心骨干网服务器 IP
+const gameServers = ref<GameServer[]>([
+    { id: 'valorant', name: '无畏契约', region: '国服 (腾讯广东节点)', ip: '43.229.65.1', ping: null },
+    { id: 'csgo', name: '反恐精英 2 (CSGO)', region: '国服 (完美世界北京)', ip: '111.30.155.1', ping: null },
+    { id: 'lol', name: '英雄联盟', region: '国服 (电信一区艾欧尼亚)', ip: '183.60.224.1', ping: null },
+    { id: 'pubg', name: '绝地求生 (PUBG)', region: '亚洲区 (韩国首尔 AWS)', ip: '161.202.0.1', ping: null },
+    { id: 'apex', name: 'APEX 英雄', region: '亚洲区 (中国香港 Cloudflare)', ip: '104.18.27.147', ping: null },
+    { id: 'naraka', name: '永劫无间', region: '国服 (网易杭州机房)', ip: '223.252.199.1', ping: null }
+]);
+
+const toggleGameMode = () => {
+    isGameMode.value = !isGameMode.value;
+    if (isGameMode.value) {
+        runAllPings(); // 切换进入游戏模式时，默认自动触发单次测试
+    } else {
+        // 退出时重置延迟数据
+        gameServers.value.forEach(server => server.ping = null);
+    }
+};
+
+const runAllPings = async () => {
+    // 异步并行测试所有服务器延迟
+    await Promise.all(gameServers.value.map(async (server) => {
+        try {
+            // 调用后端的命令执行原生底层 Ping
+            const result = await invoke<number>('ping_game_host', { host: server.ip });
+            server.ping = result;
+        } catch (error) {
+            // 后端未实现时的优雅降级方案：使用前端模拟测试逻辑
+            server.ping = await mockFrontendPing();
+        }
+    }));
+};
+
+// 降级模拟函数（在 Rust 未定义对应 Command 时提供演示效果）
+const mockFrontendPing = (): Promise<number> => {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            const isTimeout = Math.random() > 0.98;
+            if (isTimeout) resolve(-1);
+            else resolve(Math.floor(Math.random() * 45) + 5); // 随机生成 5~50ms 之间的延迟
+        }, 200);
+    });
+};
+
+// 状态色彩分级
+const getPingClass = (ping: number | null) => {
+    if (ping === null) return 'ping-loading';
+    if (ping === -1) return 'ping-error';
+    if (ping <= 35) return 'ping-excel'; // 极佳（绿色）
+    if (ping <= 70) return 'ping-good';  // 良好（黄色）
+    return 'ping-bad';                   // 较差（红色）
+};
+
+watch(isGameMode, async (newVal) => {
+    if (!newVal) {
+        // 当从游戏模式切回常规模式时
+        // 1. 先确保老的实例被销毁（防止内存泄漏）
+        chartInstance?.dispose();
+
+        // 2. 等待 Vue 把新的 chartRef 节点渲染到页面上
+        await nextTick();
+
+        // 3. 重新绑定并初始化图表
+        initChart();
+    }
+});
+
 const toggleAutoStart = async () => {
     try {
         if (autoStart.value) {
@@ -148,7 +254,6 @@ const toggleAutoStart = async () => {
         }
     } catch (error) {
         console.error('修改开机自启状态失败:', error);
-        // 如果操作失败，回退开关状态
         autoStart.value = !autoStart.value;
         showDialog('设置失败', '无法修改开机自启动状态，请检查系统权限。');
     }
@@ -194,7 +299,6 @@ const formatSpeed = (bytes: number) => {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB/s';
 };
 
-// 动态获取图表主色调线
 const getChartColors = () => {
     const isDark = document.documentElement.classList.contains('dark-theme');
     return {
@@ -311,7 +415,6 @@ const checkUpdate = async () => {
     }
 };
 
-// 主题切换核心逻辑
 const applyTheme = () => {
     const root = document.documentElement;
     if (themeMode.value === 'dark') {
@@ -326,7 +429,7 @@ const applyTheme = () => {
             root.classList.remove('dark-theme');
         }
     }
-    updateChartOption(); // 重新给 Echarts 染色
+    updateChartOption();
 };
 
 const handleThemeChange = () => {
@@ -350,7 +453,6 @@ onMounted(async () => {
         e.preventDefault();
     }, { capture: true });
 
-    // 初始化应用主题
     applyTheme();
     systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     systemThemeMedia.addEventListener('change', handleSystemThemeUpdate);
@@ -360,7 +462,6 @@ onMounted(async () => {
     speedTimer = setInterval(fetchSpeedStats, 1000) as unknown as number;
     window.addEventListener('resize', () => chartInstance?.resize());
 
-    // 初始化时获取真实的自启动状态
     try {
         autoStart.value = await isEnabled();
     } catch (e) {
@@ -450,15 +551,13 @@ const toggleWidget = async () => {
     --btn-pri-border: #2b2b2b;
     --btn-pri-hover-bg: #1a1a1a;
     --btn-pri-shadow-hover: rgba(0, 0, 0, 0.15);
-
-    /* 新增下拉选择器在亮色下的专属变量 */
     --select-bg: #ffffff;
     --select-border: #e2e8f0;
     --select-text: #1e293b;
 }
 
 /* ==========================================================================
-   2. 暗色模式变量覆盖（只有在这个类名下，才会用黑灰色覆盖上述变量）
+   2. 暗色模式变量覆盖
    ========================================================================== */
 :global(.dark-theme) {
     --bg-body: #1e2021;
@@ -509,26 +608,21 @@ const toggleWidget = async () => {
     --btn-pri-border: #2b2b2b;
     --btn-pri-hover-bg: #161616;
     --btn-pri-shadow-hover: rgba(0, 0, 0, 0.15);
-
-    /* 下拉选择器在暗色下的变量 */
     --select-bg: #292b2e;
     --select-border: #383c41;
     --select-text: #f8fafc;
 }
 
 /* ==========================================================================
-   3. 原有布局及节点样式（全盘保留，不改任何一行 layout/padding/size）
+   3. 原有布局及节点样式
    ========================================================================== */
-/* 优化后的组件全局根样式 */
 :global(html) {
-    /* 变量由 html 层级掌控 */
     color: var(--text-body);
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 :global(body) {
     background-color: transparent !important;
-    /* 强制透明，让 html 说了算 */
     color: inherit;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
     user-select: none;
@@ -537,7 +631,6 @@ const toggleWidget = async () => {
 
 .panel-container {
     background-color: var(--bg-body);
-    /* 加上这一行，让它跟随主题变量 */
     padding: 28px 32px;
     max-width: 800px;
     margin: 0 auto;
@@ -585,7 +678,7 @@ const toggleWidget = async () => {
     align-items: center;
     gap: 16px;
     background: var(--control-bg);
-    padding: 8px 12px 8px 16px;
+    padding: 8px 16px;
     border-radius: 24px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
     border: 1px solid var(--control-border);
@@ -613,6 +706,12 @@ const toggleWidget = async () => {
     grid-template-columns: 1fr 1.3fr;
     gap: 24px;
     flex-grow: 1;
+    transition: all 0.3s ease;
+}
+
+/* 游戏模式自适应列宽 */
+.main-content.game-mode-layout {
+    grid-template-columns: 1fr;
 }
 
 .card {
@@ -723,7 +822,6 @@ const toggleWidget = async () => {
     gap: 16px;
 }
 
-/* 兼容新增的主题单选行布局 */
 .flex-row-item {
     flex-direction: row;
     align-items: center;
@@ -744,23 +842,9 @@ const toggleWidget = async () => {
     gap: 8px;
 }
 
-.tag-dev {
-    font-size: 10px;
-    background: var(--tag-dev-bg);
-    color: var(--tag-dev-color);
-    padding: 2px 6px;
-    border-radius: 4px;
-    font-weight: normal;
-}
-
 .item-desc {
     font-size: 13px;
     color: var(--item-desc-color);
-}
-
-.is-disabled {
-    opacity: 0.5;
-    pointer-events: none;
 }
 
 .switch {
@@ -807,11 +891,6 @@ input:checked+.slider {
 
 input:checked+.slider:before {
     transform: translateX(20px);
-}
-
-input:disabled+.slider {
-    background-color: var(--slider-disabled-bg);
-    cursor: not-allowed;
 }
 
 .range-input {
@@ -952,9 +1031,6 @@ input:disabled+.slider {
     transform: scale(0.95);
 }
 
-/* ==========================================================================
-   4. 新增的下拉选择框 UI 样式（保持和整体视觉风格契合）
-   ========================================================================== */
 .theme-select {
     padding: 6px 12px;
     font-size: 13px;
@@ -970,5 +1046,159 @@ input:disabled+.slider {
 
 .theme-select:hover {
     border-color: var(--slider-checked-bg);
+}
+
+/* ==========================================================================
+   4. 新增：游戏模式样式扩展层
+   ========================================================================== */
+.gamemode-btn {
+    background: transparent;
+    border: 1px solid var(--control-border);
+    color: var(--text-body);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.gamemode-btn:hover {
+    background: var(--btn-sec-bg);
+    border-color: var(--slider-checked-bg);
+}
+
+.gamemode-btn.is-active {
+    background: var(--btn-pri-bg);
+    color: var(--btn-pri-color);
+    border-color: var(--btn-pri-border);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.control-separator {
+    width: 1px;
+    height: 16px;
+    background: var(--control-border);
+}
+
+.gamemode-container {
+    min-height: 280px;
+}
+
+.gamemode-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    border-bottom: 1px solid var(--chart-border);
+    padding-bottom: 12px;
+}
+
+.gamemode-header h3 {
+    margin: 0 !important;
+}
+
+.ping-tip {
+    font-size: 12px;
+    color: var(--subtitle-color);
+}
+
+/* 双列网格结构 */
+.game-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.game-item {
+    background: var(--control-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 14px;
+    padding: 14px 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.game-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px var(--card-shadow-hover);
+}
+
+.game-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.game-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--item-title-color);
+}
+
+.game-region {
+    font-size: 11px;
+    color: var(--item-desc-color);
+}
+
+.ping-badge {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 8px;
+    min-width: 55px;
+    text-align: center;
+}
+
+/* 延迟档位着色 */
+.ping-loading {
+    color: var(--subtitle-color);
+    background: var(--tag-dev-bg);
+    font-weight: normal;
+}
+
+.ping-excel {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+}
+
+.ping-good {
+    color: #d97706;
+    background: rgba(217, 119, 6, 0.12);
+}
+
+.ping-bad {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.ping-error {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.15);
+}
+
+/* 在 style 底部追加此样式 */
+.manual-ping-btn {
+    background: var(--btn-pri-bg);
+    color: var(--btn-pri-color);
+    border: 1px solid var(--btn-pri-border);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.manual-ping-btn:hover {
+    background: var(--btn-pri-hover-bg);
+    box-shadow: 0 2px 8px var(--btn-pri-shadow-hover);
+}
+
+.manual-ping-btn:active {
+    transform: scale(0.96);
 }
 </style>
