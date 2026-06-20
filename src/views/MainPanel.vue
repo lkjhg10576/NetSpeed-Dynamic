@@ -263,7 +263,7 @@ const isDynamicSet = ref(false);
 const isChecking = ref(false);
 
 // 灵动岛设置相关的 UI 状态绑定
-const islandTheme = ref('black');
+const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
 const enableMusicCtrl = ref(false);
 const enableMsgNotify = ref(false);
 const enableHardwareMon = ref(false);
@@ -674,6 +674,11 @@ watch(opacity, async (newVal) => {
     await emit('control-island-opacity', { opacity: newVal });
 });
 
+watch(islandTheme, async (newVal) => {
+    localStorage.setItem('nsd_island_theme', newVal);
+    await emit('control-island-theme', { theme: newVal });
+});
+
 onMounted(async () => {
     window.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -763,7 +768,7 @@ const toggleWidget = async () => {
     --tag-dev-bg: #f1f5f9;
     --tag-dev-color: #64748b;
     --item-desc-color: #64748b;
-    --slider-bg: #cbd5e1;
+    --slider-bg: #d7dce2;
     --slider-checked-bg: #b9b9b9;
     --slider-disabled-bg: #e2e8f0;
     --range-bg: #e2e8f0;
@@ -820,7 +825,7 @@ const toggleWidget = async () => {
     --tag-dev-bg: #334155;
     --tag-dev-color: #94a3b8;
     --item-desc-color: #94a3b8;
-    --slider-bg: #475569;
+    --slider-bg: #3e4247;
     --slider-checked-bg: #5d646d;
     --slider-disabled-bg: #334155;
     --range-bg: #42474e;
@@ -1374,6 +1379,7 @@ input:checked+.slider:before {
     font-weight: 600;
     display: flex;
     align-items: center;
+    max-height: 24px;
     color: var(--item-title-color);
 }
 
@@ -1385,6 +1391,7 @@ input:checked+.slider:before {
     padding: 2px 6px;
     border-radius: 4px;
     margin-left: 6px;
+    max-height: 24px;
 }
 
 .set-item-desc {

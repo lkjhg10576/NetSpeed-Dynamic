@@ -1,7 +1,7 @@
 <template>
     <transition @enter="onEnter" @leave="onLeave" :css="false">
-        <div v-show="isIslandVisible" class="island-container" @mousedown="handleMouseDown"
-            :style="{ backgroundColor: `rgba(0, 0, 0, ${islandOpacity / 100})` }" @contextmenu="handleRightClick">
+        <div v-show="isIslandVisible" class="island-container" @mousedown="handleMouseDown" :style="islandStyle"
+            @contextmenu="handleRightClick">
             <div class="speed-box">
                 <div class="speed-item">
                     <span :class="['label', { 'high-traffic': isHighUpload }]">↑</span>
@@ -19,7 +19,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, currentMonitor, PhysicalPosition, LogicalPosition, LogicalSize } from '@tauri-apps/api/window';
 import { Menu, MenuItem } from '@tauri-apps/api/menu';
@@ -29,6 +29,22 @@ const isIslandVisible = ref(false);
 
 // 灵动岛自身的透明度变量（默认100）
 const islandOpacity = ref(Number(localStorage.getItem('nsd_island_opacity') || '100'));
+
+const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
+
+const islandStyle = computed(() => {
+    const alpha = islandOpacity.value / 100;
+    if (islandTheme.value === 'white') {
+        return {
+            backgroundColor: `rgba(255, 255, 255, ${alpha})`,
+            color: '#000000'
+        };
+    }
+    return {
+        backgroundColor: `rgba(0, 0, 0, ${alpha})`,
+        color: '#ffffff'
+    };
+});
 
 const uploadSpeed = ref('0 KB/s');
 const downloadSpeed = ref('0 KB/s');
@@ -285,6 +301,10 @@ onMounted(async () => {
         islandOpacity.value = event.payload.opacity;
     });
 
+    await listen<{ theme: string }>('control-island-theme', (event) => {
+        islandTheme.value = event.payload.theme;
+    });
+
     await adjustWindowPosition();
 
     // 先显示透明的 Tauri 窗口，再触发 Vue 的灵动岛入场弹簧动画
@@ -390,9 +410,9 @@ onUnmounted(() => {
 
 .label {
     font-size: 10px;
-    color: rgba(255, 255, 255, 0.4);
+    color: currentColor;
+    opacity: 0.4;
     font-weight: bold;
-    /* 预留过渡动画，让视觉变化更平滑 */
     padding: 2px 4px;
     border-radius: 4px;
     transition: all 0.3s ease;
@@ -400,7 +420,8 @@ onUnmounted(() => {
 
 /* 高流量时的 label 样式 */
 .label.high-traffic {
-    color: rgba(255, 255, 255, 0.9);
+    color: currentColor;
+    opacity: 0.9;
     /* 文字稍微变亮，增加可读性 */
     background: rgba(255, 255, 255, 0.15);
     /* 浅白色半透明背景 */
