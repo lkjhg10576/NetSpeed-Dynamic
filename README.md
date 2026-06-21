@@ -234,3 +234,17 @@ npm run tauri build
 本项目基于 [MIT License](./LICENSE) 开源。
 
 Copyright (c) 2026 Ryen (GEORGEWU)
+
+## 捐赠 / Sponsor
+
+如果 NetSpeed Dynamic 对你有帮助，欢迎请作者喝杯咖啡 ☕，你的支持是项目持续开发的动力！
+
+| 方式 | 信息 |
+|------|------|
+| 微信支付 | ![微信](./src/assets/wechat-pay.png) |
+| 支付宝 | ![支付宝](./src/assets/alipay.jpg) |
+| GitHub Sponsors | [前往支持](https://github.com/sponsors/GEORGEWWWU) |
+
+---
+
+> 感谢每一位支持者！
