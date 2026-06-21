@@ -153,8 +153,14 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title">音乐控制器 <p class="set-item-new-tag">NEW</p></span>
-                            <span class="set-item-desc">检测到音乐播放时展示控制面板</span>
+                            <span class="set-item-title">
+                                音乐控制器
+                                <span class="tooltip-wrapper" data-tooltip="若要使用此功能请将网易云音乐最小化或保持窗口，请不要关闭窗口！">
+                                    <p class="set-item-tips-tag">🙋‍♂️</p>
+                                </span>
+                                <p class="set-item-new-tag">NEW</p>
+                            </span>
+                            <span class="set-item-desc">支持网易云音乐控制及歌曲信息显示</span>
                         </div>
                         <label class="switch">
                             <input type="checkbox" v-model="enableMusicCtrl">
@@ -1356,7 +1362,7 @@ input:checked+.slider:before {
     box-shadow: 0 4px 20px -2px var(--card-shadow);
     height: 100%;
     min-height: 0;
-    overflow: hidden;
+    /* overflow: hidden; */
 }
 
 /* 设置项：去掉独立背景和边框，融入容器 */
@@ -1403,7 +1409,7 @@ input:checked+.slider:before {
 }
 
 .set-item-new-tag {
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 600;
     color: #dd1f1f;
     background: #b9101020;
@@ -1411,6 +1417,73 @@ input:checked+.slider:before {
     border-radius: 4px;
     margin-left: 6px;
     max-height: 24px;
+    transform: translateY(1px);
+}
+
+.set-item-tips-tag {
+    font-size: 10px;
+    font-weight: bold;
+    color: var(--btn-pri-color);
+    background: var(--btn-pri-bg);
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-left: 6px;
+    max-height: 24px;
+    transform: translateY(1px);
+    opacity: 0.8;
+}
+
+/* Tooltip 容器 */
+.tooltip-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    cursor: help;
+    /* 鼠标悬停时显示帮助光标 */
+}
+
+/* Tooltip 气泡本体 */
+.tooltip-wrapper::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    bottom: calc(100% + 2px);
+    /* 位于元素上方 8px */
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    /* 初始位置稍微偏下，用于动画 */
+
+    /* 样式：复用现有主题变量 */
+    background: var(--modal-bg);
+    color: var(--text-body);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 4px 12px var(--card-shadow-hover);
+
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.4;
+    white-space: nowrap;
+    /* 保持单行，若文本过长可改为 normal 并设置 max-width */
+
+    /* 交互与动画 */
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 999;
+}
+
+/* Hover 时显示 */
+.tooltip-wrapper:hover::after {
+    opacity: 1;
+    visibility: visible;
+    transform: translateX(-50%) translateY(0);
+}
+
+.tooltip-wrapper:hover::before {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
 }
 
 .set-item-desc {
