@@ -2,46 +2,55 @@
     <transition @enter="onEnter" @leave="onLeave" :css="false">
         <div v-show="isIslandVisible" class="island-container" @mousedown="handleMouseDown" :style="islandStyle"
             @contextmenu="handleRightClick">
-            <div class="music-ctl-box" v-if="isMusicCtlEnabled">
-                <div class="album-cover" :class="{ 'is-playing': isPlaying }">
-                    <div class="cover-inner"></div>
-                </div>
 
-                <div class="music-controls">
-                    <button class="ctl-btn" @click="prevTrack">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-                        </svg>
-                    </button>
+            <div class="inner-wrapper">
+                <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
+                    <div class="music-ctl-box" v-show="isMusicCtlEnabled" key="music">
+                        <div class="album-cover" :class="{ 'is-playing': isPlaying }">
+                            <div class="cover-inner"></div>
+                        </div>
 
-                    <button class="ctl-btn play-btn" @click="togglePlay">
-                        <svg v-if="isPlaying" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
-                        </svg>
+                        <div class="music-controls">
+                            <button class="ctl-btn" @click="prevTrack">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                                </svg>
+                            </button>
 
-                        <svg v-else viewBox="0 0 24 24" fill="currentColor" style="transform: translateX(1px);">
-                            <path d="M8 5v14l11-7z" />
-                        </svg>
-                    </button>
+                            <button class="ctl-btn play-btn" @click="togglePlay">
+                                <svg v-if="isPlaying" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                                </svg>
 
-                    <button class="ctl-btn" @click="nextTrack">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-                        </svg>
-                    </button>
-                </div>
+                                <svg v-else viewBox="0 0 24 24" fill="currentColor" style="transform: translateX(1px);">
+                                    <path d="M8 5v14l11-7z" />
+                                </svg>
+                            </button>
+
+                            <button class="ctl-btn" @click="nextTrack">
+                                <svg viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </transition>
+
+                <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
+                    <div class="speed-box" v-show="!isMusicCtlEnabled" key="speed">
+                        <div class="speed-item">
+                            <span :class="['label', { 'high-traffic': isHighUpload }]">↑</span>
+                            <span class="value">{{ uploadSpeed }}</span>
+                        </div>
+                        <div class="divider"></div>
+                        <div class="speed-item">
+                            <span :class="['label', { 'high-traffic': isHighDownload }]">↓</span>
+                            <span class="value">{{ downloadSpeed }}</span>
+                        </div>
+                    </div>
+                </transition>
             </div>
-            <div class="speed-box" v-else>
-                <div class="speed-item">
-                    <span :class="['label', { 'high-traffic': isHighUpload }]">↑</span>
-                    <span class="value">{{ uploadSpeed }}</span>
-                </div>
-                <div class="divider"></div>
-                <div class="speed-item">
-                    <span :class="['label', { 'high-traffic': isHighDownload }]">↓</span>
-                    <span class="value">{{ downloadSpeed }}</span>
-                </div>
-            </div>
+
             <div :class="['status-dot', networkStatus]"></div>
         </div>
     </transition>
@@ -343,6 +352,80 @@ const handleRightClick = async (event: MouseEvent) => {
     }
 };
 
+const onInnerEnter = (el: Element, done: () => void) => {
+    const htmlEl = el as HTMLElement;
+    let start = performance.now();
+
+    if (htmlEl.classList.contains('music-ctl-box')) {
+        const freq = 2.0;
+        const decay = 10.5;
+        const duration = 600;
+
+        // 【关键防御】：在动画开跑前，死死按住初始状态，不给浏览器任何闪烁的机会
+        htmlEl.style.transform = `translateY(20px)`;
+        htmlEl.style.opacity = '0';
+
+        const animate = (time: number) => {
+            let t = (time - start) / 1000;
+            let progress = (time - start) / duration;
+
+            let spring = 1 - Math.cos(freq * t * 2 * Math.PI) * Math.exp(-decay * t);
+            let opacity = Math.min(1, progress * 4);
+            let y = 20 * (1 - spring);
+
+            htmlEl.style.transform = `translateY(${y}px)`;
+            htmlEl.style.opacity = opacity.toString();
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                htmlEl.style.transform = 'none';
+                htmlEl.style.opacity = '1';
+                done();
+            }
+        };
+        requestAnimationFrame(animate);
+    } else {
+        const duration = 200;
+        // 【关键防御】：网速盒入场前也做初始化拦截
+        htmlEl.style.opacity = '0';
+        htmlEl.style.transform = 'none';
+
+        const animate = (time: number) => {
+            let progress = (time - start) / duration;
+            htmlEl.style.opacity = Math.min(1, progress).toString();
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                htmlEl.style.opacity = '1';
+                done();
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+};
+
+const onInnerLeave = (el: Element, done: () => void) => {
+    const htmlEl = el as HTMLElement;
+    let start = performance.now();
+    const duration = 150;
+
+    const animate = (time: number) => {
+        let progress = (time - start) / duration;
+        let opacity = 1 - progress;
+
+        htmlEl.style.opacity = Math.max(0, opacity).toString();
+
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            done();
+        }
+    };
+    requestAnimationFrame(animate);
+};
+
 onMounted(async () => {
     document.addEventListener('contextmenu', (e) => {
         e.preventDefault();
@@ -440,6 +523,7 @@ onUnmounted(() => {
     box-shadow: none !important;
     border: none !important;
     -webkit-user-select: none;
+    overflow: hidden;
 }
 
 [data-tauri-drag-region] {
@@ -544,15 +628,30 @@ onUnmounted(() => {
     color: var(--text-primary) !important;
 }
 
-/* --- 音乐控制器样式 --- */
-.music-ctl-box {
-    position: relative;
-    /* 改为相对定位，作为内部绝对居中的参考系 */
+/* 让两个盒子脱离彼此的影响，在同一个包裹层内完美的“重叠”放置 */
+.music-ctl-box,
+.speed-box {
+    position: absolute;
+    /* 改为绝对定位，实现无缝平替 */
+    left: 0;
+    top: 0;
     display: flex;
     align-items: center;
     width: 100%;
     height: 100%;
-    /* 确保撑满高度 */
+}
+
+.music-ctl-box {
+    justify-content: flex-start;
+}
+
+/* 核心改动：增加统一的内部绝对定位平替包裹层 */
+.inner-wrapper {
+    position: relative;
+    flex-grow: 1;
+    height: 100%;
+    display: flex;
+    align-items: center;
 }
 
 .album-cover {
