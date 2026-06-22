@@ -3,16 +3,14 @@ use tauri::{State, Manager};
 use sysinfo::Networks;
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
-
-// 引入 autostart 所需的 MacosLauncher (即使只在 Windows 上运行，这也是标准的初始化参数)
 use tauri_plugin_autostart::MacosLauncher;
-
-// 引入托盘相关组件
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
-
 use winapi::um::winuser::{EnumWindows, GetWindowTextW, IsWindowVisible, GetClassNameW};
 use winapi::shared::windef::HWND;
+use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+static LAST_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(0);
+static IS_NOTIF_INIT: AtomicBool = AtomicBool::new(false);
 
 // 结构体：用于在窗口枚举中传递和存储找到的歌词/音乐信息
 struct MusicInfo {
@@ -176,6 +174,93 @@ fn control_system_media(action: String) {
     }
 }
 
+#[tauri::command]
+async fn fetch_latest_notification() -> Result<Option<(String, String)>, String> {
+    use windows::UI::Notifications::Management::UserNotificationListener;
+    use windows::UI::Notifications::NotificationKinds;
+
+    let listener = match UserNotificationListener::Current() {
+        Ok(l) => l,
+        Err(_) => return Ok(None),
+    };
+
+    // 尝试向系统请求通知中心读取权限
+    let _ = listener.RequestAccessAsync();
+
+    // 仅抓取系统的 Toast 弹出类通知
+    let notifications = match listener.GetNotificationsAsync(NotificationKinds::Toast) {
+        Ok(op) => {
+            match op.get() {
+                Ok(ns) => ns,
+                Err(_) => return Ok(None),
+            }
+        }
+        Err(_) => return Ok(None),
+    };
+
+    let mut latest_notif = None;
+    let mut max_id = 0;
+
+    for notif in notifications {
+        if let Ok(id) = notif.Id() {
+            if id > max_id {
+                max_id = id;
+                latest_notif = Some(notif);
+            }
+        }
+    }
+
+    if max_id == 0 {
+        return Ok(None);
+    }
+
+    let last_processed_id = LAST_NOTIFICATION_ID.load(Ordering::SeqCst);
+
+    // 初始化：刚开软件时，以当前的最新一条通知作为基准线
+    if !IS_NOTIF_INIT.load(Ordering::SeqCst) {
+        LAST_NOTIFICATION_ID.store(max_id, Ordering::SeqCst);
+        IS_NOTIF_INIT.store(true, Ordering::SeqCst);
+        return Ok(None);
+    }
+
+    // 如果发现当前的最大通知 ID 大于上次记录的 ID，说明来了一条崭新的未读通知
+    if max_id > last_processed_id {
+        LAST_NOTIFICATION_ID.store(max_id, Ordering::SeqCst);
+        if let Some(notif) = latest_notif {
+            // 绕开容易报错的 AppInfo，直接走确定存在的大驼峰 Notification() 链条
+            if let Ok(toast_binding) = notif.Notification()
+                .and_then(|n| n.Visual())
+                .and_then(|v| v.GetBinding(&windows::core::HSTRING::from("ToastGeneric"))) 
+            {
+                if let Ok(text_elements) = toast_binding.GetTextElements() {
+                    let mut text_list = Vec::new();
+                    for elem in text_elements {
+                        if let Ok(text) = elem.Text() {
+                            text_list.push(text.to_string());
+                        }
+                    }
+                    if !text_list.is_empty() {
+                        let title = text_list.get(0).cloned().unwrap_or_default();
+                        let body = text_list.get(1..).unwrap_or(&[]).join(" ");
+                        
+                        // 兜底的应用名：默认为系统通知。也可以从 title 判断是否包含微信
+                        let app_name_str = "系统通知".to_string();
+
+                        // 遵照细节：如果通知标题或内容里包含微信或 WeChat，则直接过滤并忽略
+                        if title.contains("微信") || title.contains("WeChat") || body.contains("微信") || body.contains("WeChat") {
+                            return Ok(None);
+                        }
+
+                        return Ok(Some((app_name_str, format!("{}: {}", title, body))));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 struct AppState {
     networks: Mutex<Networks>,
 }
@@ -240,7 +325,8 @@ pub fn run() {
             get_network_latency,
             fetch_netease_music_info,
             control_system_media,
-            get_random_cover_url
+            get_random_cover_url,
+            fetch_latest_notification,
         ])
         .setup(|app| {
             // --- 新增：处理静默启动逻辑 ---

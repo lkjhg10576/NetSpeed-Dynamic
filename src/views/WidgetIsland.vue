@@ -8,7 +8,19 @@
             <div class="island-core-content" :style="coreContentStyle">
                 <div class="inner-wrapper">
                     <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                        <div class="music-ctl-box" v-show="isMusicCtlEnabled" :key="musicBoxKey"
+                        <div class="msg-box" v-show="isMsgActive" key="msg"
+                            style="position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; flex-direction: column; justify-content: center; align-items: center; width: calc(100% - 40px); height: 100%; text-align: center; overflow: hidden; white-space: nowrap; box-sizing: border-box; z-index: 10;">
+                            <div
+                                style="font-size: 12px; font-weight: bold; opacity: 0.9; text-align: center; margin-bottom: 2px; width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                                {{ msgTitle }}</div>
+                            <div
+                                style="font-size: 11px; opacity: 0.7; text-align: center; width: 100%; overflow: hidden; text-overflow: ellipsis;">
+                                {{ msgBody }}</div>
+                        </div>
+                    </transition>
+
+                    <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
+                        <div class="music-ctl-box" v-show="isMusicCtlEnabled && !isMsgActive" :key="musicBoxKey"
                             @mouseenter="handleMusicBoxEnter" @mouseleave="handleMusicBoxLeave">
 
                             <div class="album-cover" :class="{ 'is-playing': isPlaying }">
@@ -54,7 +66,7 @@
                     </transition>
 
                     <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                        <div class="speed-box" v-show="!isMusicCtlEnabled" key="speed">
+                        <div class="speed-box" v-show="!isMusicCtlEnabled && !isMsgActive" key="speed">
                             <div class="speed-item">
                                 <span :class="['label', { 'high-traffic': isHighUpload }]">↑</span>
                                 <span class="value">{{ uploadSpeed }}</span>
@@ -75,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, type CSSProperties } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, currentMonitor, PhysicalPosition, LogicalPosition, LogicalSize } from '@tauri-apps/api/window';
 import { Menu, MenuItem } from '@tauri-apps/api/menu';
@@ -88,18 +100,23 @@ const islandOpacity = ref(Number(localStorage.getItem('nsd_island_opacity') || '
 
 const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
 
-const islandStyle = computed(() => {
+// 修改后的 islandStyle
+const islandStyle = computed<CSSProperties>(() => {
     const linear = islandOpacity.value / 100;
     const alpha = Math.pow(linear, 1 / 2.2);
-    if (islandTheme.value === 'white') {
-        return {
-            backgroundColor: `rgba(255, 255, 255, ${alpha})`,
-            color: '#000000'
-        };
-    }
-    return {
+    const baseStyle = islandTheme.value === 'white' ? {
+        backgroundColor: `rgba(255, 255, 255, ${alpha})`,
+        color: '#000000'
+    } : {
         backgroundColor: `rgba(0, 0, 0, ${alpha})`,
         color: '#ffffff'
+    };
+
+    return {
+        ...baseStyle,
+        width: `${currentWidth.value}px`,
+        height: `${currentHeight.value}px`,
+        position: 'relative', // 改为相对定位或保留，由父级负责居中
     };
 });
 
@@ -335,11 +352,9 @@ const adjustWindowPosition = async () => {
         if (monitor) {
             const scaleFactor = await appWindow.scaleFactor();
 
-            // 1. 在这里按像素死死固定住灵动岛的尺寸
-            // 替换为你想要的基准像素尺寸
-            const ISLAND_WIDTH = 260;
-            const ISLAND_HEIGHT = 42;
-            await appWindow.setSize(new LogicalSize(ISLAND_WIDTH, ISLAND_HEIGHT));
+            const WINDOW_INIT_WIDTH = currentWidth.value;   // 默认 260
+            const WINDOW_INIT_HEIGHT = currentHeight.value; // 默认 42
+            await appWindow.setSize(new LogicalSize(WINDOW_INIT_WIDTH, WINDOW_INIT_HEIGHT));
 
             const monitorWidthPhysical = monitor.size.width;
             const monitorLeftPhysical = monitor.position.x;
@@ -503,7 +518,6 @@ const onInnerEnter = (el: Element, done: () => void) => {
         const decay = 10.5;
         const duration = 600;
 
-        // 【关键防御】：在动画开跑前，死死按住初始状态，不给浏览器任何闪烁的机会
         htmlEl.style.transform = `translateY(20px)`;
         htmlEl.style.opacity = '0';
 
@@ -524,15 +538,14 @@ const onInnerEnter = (el: Element, done: () => void) => {
                 htmlEl.style.transform = 'none';
                 htmlEl.style.opacity = '1';
                 done();
-
-                // 【新增核心调用】控制箱入场弹簧动画完全结束后，开启 1s 倒计时隐藏控件
                 startHideTimer();
             }
         };
         requestAnimationFrame(animate);
     } else {
+        // 网速盒与消息盒共用此处的渐变淡入
         const duration = 200;
-        // 【关键防御】：网速盒入场前也做初始化拦截
+        htmlEl.style.transformOrigin = 'center';
         htmlEl.style.opacity = '0';
         htmlEl.style.transform = 'none';
 
@@ -569,6 +582,52 @@ const onInnerLeave = (el: Element, done: () => void) => {
         }
     };
     requestAnimationFrame(animate);
+};
+
+// 1. 新增：控制 DOM 真正的高宽变量与消息数据
+const currentWidth = ref(260);
+const currentHeight = ref(42);
+const isMsgActive = ref(false);
+const msgTitle = ref('');
+const msgBody = ref('');
+
+// 2. 新增：完美复刻你原有 AE 弹性震荡曲线的动态宽高动画函数
+// 2. 修改：让 Tauri 原生窗口与 Vue 灵动岛 DOM 宽高完全同步变换
+const animateIslandSize = (targetWidth: number, targetHeight: number) => {
+    let startWidth = currentWidth.value;
+    let startHeight = currentHeight.value;
+    let start = performance.now();
+
+    const freq = 2.0;    // 复用你的 AE 频率
+    const decay = 10.5;  // 复用你的 阻力
+    const duration = 600;// 复用你的 动画总时长
+
+    const appWindow = getCurrentWindow();
+
+    const run = (time: number) => {
+        let t = (time - start) / 1000;
+        let progress = (time - start) / duration;
+
+        // 核心数学方程：1 - cos(2πft) * e^(-dt)
+        let spring = 1 - Math.cos(freq * t * 2 * Math.PI) * Math.exp(-decay * t);
+
+        // 1. 更新 Vue 内部样式组件的宽高
+        currentWidth.value = startWidth + (targetWidth - startWidth) * spring;
+        currentHeight.value = startHeight + (targetHeight - startHeight) * spring;
+
+        // 2. 【关键同步】实时改变原生 Tauri 窗口的大小，防止空白区域阻挡点击
+        // 由于调整物理窗口有微小开销，这里实时转为逻辑尺寸同步给窗口
+        appWindow.setSize(new LogicalSize(currentWidth.value, currentHeight.value)).catch(() => { });
+
+        if (progress < 1) {
+            requestAnimationFrame(run);
+        } else {
+            currentWidth.value = targetWidth;
+            currentHeight.value = targetHeight;
+            appWindow.setSize(new LogicalSize(targetWidth, targetHeight)).catch(() => { });
+        }
+    };
+    requestAnimationFrame(run);
 };
 
 onMounted(async () => {
@@ -611,10 +670,39 @@ onMounted(async () => {
     checkNetworkLatency();
 
     // 在你原有的每秒刷新定时器中，顺带执行音乐同步
-    speedTimer = setInterval(() => {
+    speedTimer = setInterval(async () => {
         fetchSpeedStats();
         if (isMusicCtlEnabled.value) {
-            syncMusicStatus(); // 当音乐控制器启用时，每秒顺带检查网易云状态
+            syncMusicStatus(); // 当音乐控制器启用时，每秒顺带检查网易云
+        }
+
+        // === 新增：定时轮询系统通知状态 ===
+        const enabled = localStorage.getItem('nsd_msg_notify') === 'true';
+        if (enabled) {
+            try {
+                const res = await invoke<[string, string] | null>('fetch_latest_notification');
+                if (res) {
+                    const [appName, content] = res;
+                    msgTitle.value = appName;
+                    msgBody.value = content;
+
+                    if (!isMsgActive.value) {
+                        isMsgActive.value = true;
+                        // 使用 AE 弹性曲线动画平滑扩增灵动岛到（宽360，高65）
+                        animateIslandSize(360, 65);
+                    }
+
+                    // 弹出 5 秒后，自动恢复收回
+                    if ((window as any).msgTimer) clearTimeout((window as any).msgTimer);
+                    (window as any).msgTimer = setTimeout(() => {
+                        isMsgActive.value = false;
+                        // 使用 AE 弹性曲线动画平滑收回灵动岛原有胶囊大小（宽260，高42）
+                        animateIslandSize(260, 42);
+                    }, 5000);
+                }
+            } catch (err) {
+                console.error(err);
+            }
         }
     }, 1000) as unknown as number;
 
@@ -672,33 +760,30 @@ onUnmounted(() => {
 
 /* 1. 外层包裹层：负责裁切多余的流光，并提供呼吸扩散的高斯模糊效果 */
 .island-container {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important;
-    height: 100% !important;
+    /* 移除 position: absolute; top: 0; */
+    margin: 0 auto;
+    /* 让它在窗口内水平居中 */
     border-radius: 100px;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 2px;
-    /* 这里的 2px 决定了流光边框的粗细 */
     user-select: none;
     -webkit-user-select: none;
     overflow: hidden;
-    /* 牢牢把流光裁剪成一条圆角线 */
     background: transparent;
     transition: background 0.4s ease;
+    box-sizing: border-box;
 }
 
 /* 2. 隐藏在底层的巨大旋转渐变层 */
 .rainbow-border-glow {
     position: absolute;
     /* 关键：把它的尺寸设定为远超出容器的巨大正方形，解决大方块旋转露角的问题 */
-    width: 300px;
-    height: 300px;
-    top: calc(50% - 150px);
-    left: calc(50% - 150px);
+    width: 500px;
+    height: 500px;
+    top: calc(50% - 300px);
+    left: calc(50% - 300px);
     z-index: 1;
     background: conic-gradient(from 0deg,
             #ff3b30, #ff9500, #ffcc00, #4cd964, #5ac8fa, #007aff, #5856d6, #ff3b30);

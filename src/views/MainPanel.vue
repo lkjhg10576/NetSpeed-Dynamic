@@ -168,13 +168,13 @@
                         </label>
                     </div>
 
-                    <div class="set-item disabled-set-item">
+                    <div class="set-item">
                         <div class="set-item-meta">
                             <span class="set-item-title">消息通知接收 <p class="set-item-pro-tag">PRO</p></span>
-                            <span class="set-item-desc">启用微信 / QQ 消息弹窗提醒</span>
+                            <span class="set-item-desc">启用系统控制中心消息弹窗提醒</span>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" v-model="enableMsgNotify" disabled="true">
+                            <input type="checkbox" v-model="enableMsgNotify" @change="toggleMsgNotify">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -272,8 +272,13 @@ const isChecking = ref(false);
 // 灵动岛设置相关的 UI 状态绑定
 const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
 const enableMusicCtrl = ref(localStorage.getItem('nsd_music_ctrl') === 'true');
-const enableMsgNotify = ref(false);
+const enableMsgNotify = ref(localStorage.getItem('nsd_msg_notify') === 'true');
 const enableHardwareMon = ref(false);
+
+// 新增切换保存方法
+const toggleMsgNotify = () => {
+    localStorage.setItem('nsd_msg_notify', String(enableMsgNotify.value));
+};
 
 // 切换灵动岛设置
 const toggleDynamicSet = () => {
