@@ -72,7 +72,6 @@
                                 <span :class="['label', { 'high-traffic': isHighUpload }]">↑</span>
                                 <span class="value">{{ uploadSpeed }}</span>
                             </div>
-                            <div class="divider"></div>
                             <div class="speed-item">
                                 <span :class="['label', { 'high-traffic': isHighDownload }]">↓</span>
                                 <span class="value">{{ downloadSpeed }}</span>
@@ -881,16 +880,10 @@ onUnmounted(() => {
 }
 
 .value {
-    font-size: 11px;
-    font-weight: 500;
+    font-size: 12px;
+    font-weight: bold;
     min-width: 52px;
     letter-spacing: -0.2px;
-}
-
-.divider {
-    width: 1px;
-    height: 12px;
-    background: rgba(255, 255, 255, 0.12);
 }
 
 .status-dot {
