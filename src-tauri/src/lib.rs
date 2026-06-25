@@ -290,32 +290,62 @@ async fn fetch_latest_notification() -> Result<Option<ToastData>, String> {
     Ok(None)
 }
 
-// 👇修改：完美兼容新版 QQ NT 的终极唤醒方案
+use std::os::windows::ffi::OsStrExt;
+use winapi::um::shellapi::ShellExecuteW;
+use winapi::um::winuser::{keybd_event, VK_MENU, KEYEVENTF_KEYUP, SW_SHOWNORMAL};
+
 #[tauri::command]
 fn open_app_by_aumid(aumid: String, app_name: String) {
     println!("👉 收到点击！准备唤醒程序: app_name='{}', aumid='{}'", app_name, aumid);
 
     let app_lower = app_name.to_lowercase();
     
+    // 【核心黑魔法：底层破解 Windows 焦点防劫持】
+    // 极速模拟按一下 Alt 键并松开（0 延迟，0 闪烁）。
+    // 这能骗过系统，让它以为用户正在敲击键盘，直接下发“允许前台弹窗”的权限，根治任务栏闪烁不弹窗的问题。
+    unsafe {
+        keybd_event(VK_MENU as u8, 0, 0, 0);
+        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
+    }
+    
+    // 封装一个干净、底层的协议执行器，彻底告别 CMD 和 PowerShell
+    let execute_protocol = |protocol: &str| {
+        unsafe {
+            let op = std::ffi::OsStr::new("open").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+            let file = std::ffi::OsStr::new(protocol).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                op.as_ptr(),
+                file.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            );
+        }
+    };
+
     if app_lower.contains("qq") {
-        // 新版 QQ NT 拦截了空参数的 tencent://。
-        // 我们改用 PowerShell，通过读取系统注册表精准找到 QQ 的真实路径来启动它（等同于双击桌面图标，自动唤醒到前台）
-        let script = r#"
-            $path = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\QQ.exe' -ErrorAction Ignore).'(default)'
-            if (-not $path) { $path = (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\QQ.exe' -ErrorAction Ignore).'(default)' }
-            if ($path) { Start-Process $path } else { (New-Object -ComObject WScript.Shell).AppActivate('QQ') }
-        "#;
-        let _ = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
-            .spawn();
+        // 让 QQ 自己的协议管理器去平滑唤醒托盘进程，不再用 Win32 强拉避免黑屏卡死
+        execute_protocol("tencent://message/");
     } else if app_lower.contains("微信") || app_lower.contains("wechat") {
-        // 微信依然非常规矩，可以用 URL 协议秒开
-        let _ = std::process::Command::new("cmd").args(["/c", "start", "weixin://"]).spawn();
+        execute_protocol("weixin://");
     } else if app_lower.contains("钉钉") || app_lower.contains("dingtalk") {
-        let _ = std::process::Command::new("cmd").args(["/c", "start", "dingtalk://"]).spawn();
+        execute_protocol("dingtalk://");
     } else if !aumid.is_empty() {
-        // UWP 系统应用依然走原生的 AUMID 方案
-        let _ = std::process::Command::new("explorer").arg(format!("shell:AppsFolder\\{}", aumid)).spawn();
+        // UWP 应用也直接走底层的 ShellExecute，绝不生成任何控制台黑窗
+        unsafe {
+            let op = std::ffi::OsStr::new("open").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+            let file = std::ffi::OsStr::new("explorer.exe").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+            let params = std::ffi::OsStr::new(&format!("shell:AppsFolder\\{}", aumid)).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                op.as_ptr(),
+                file.as_ptr(),
+                params.as_ptr(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            );
+        }
     }
 }
 
