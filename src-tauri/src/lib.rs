@@ -22,6 +22,7 @@ pub struct ToastData {
     pub app_name: String,
     pub title: String,
     pub body: String,
+    pub aumid: String,
 }
 
 // 外部枚举的回调函数
@@ -236,6 +237,12 @@ async fn fetch_latest_notification() -> Result<Option<ToastData>, String> {
                 .map(|name| name.to_string())
                 .unwrap_or_else(|_| "系统通知".to_string());
 
+            // 👇新增：获取程序的 AUMID
+            let aumid = notif.AppInfo()
+                .and_then(|info| info.AppUserModelId())
+                .map(|id| id.to_string())
+                .unwrap_or_default();
+
             if let Ok(toast_binding) = notif
                 .Notification()
                 .and_then(|n| n.Visual())
@@ -272,6 +279,7 @@ async fn fetch_latest_notification() -> Result<Option<ToastData>, String> {
                             app_name,
                             title,
                             body,
+                            aumid,
                         }));
                     }
                 }
@@ -280,6 +288,35 @@ async fn fetch_latest_notification() -> Result<Option<ToastData>, String> {
     }
 
     Ok(None)
+}
+
+// 👇修改：完美兼容新版 QQ NT 的终极唤醒方案
+#[tauri::command]
+fn open_app_by_aumid(aumid: String, app_name: String) {
+    println!("👉 收到点击！准备唤醒程序: app_name='{}', aumid='{}'", app_name, aumid);
+
+    let app_lower = app_name.to_lowercase();
+    
+    if app_lower.contains("qq") {
+        // 新版 QQ NT 拦截了空参数的 tencent://。
+        // 我们改用 PowerShell，通过读取系统注册表精准找到 QQ 的真实路径来启动它（等同于双击桌面图标，自动唤醒到前台）
+        let script = r#"
+            $path = (Get-ItemProperty 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths\QQ.exe' -ErrorAction Ignore).'(default)'
+            if (-not $path) { $path = (Get-ItemProperty 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\QQ.exe' -ErrorAction Ignore).'(default)' }
+            if ($path) { Start-Process $path } else { (New-Object -ComObject WScript.Shell).AppActivate('QQ') }
+        "#;
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", script])
+            .spawn();
+    } else if app_lower.contains("微信") || app_lower.contains("wechat") {
+        // 微信依然非常规矩，可以用 URL 协议秒开
+        let _ = std::process::Command::new("cmd").args(["/c", "start", "weixin://"]).spawn();
+    } else if app_lower.contains("钉钉") || app_lower.contains("dingtalk") {
+        let _ = std::process::Command::new("cmd").args(["/c", "start", "dingtalk://"]).spawn();
+    } else if !aumid.is_empty() {
+        // UWP 系统应用依然走原生的 AUMID 方案
+        let _ = std::process::Command::new("explorer").arg(format!("shell:AppsFolder\\{}", aumid)).spawn();
+    }
 }
 
 struct AppState {
@@ -361,6 +398,7 @@ pub fn run() {
             get_random_cover_url,
             fetch_latest_notification,
             get_hardware_stats,
+            open_app_by_aumid,
         ])
         .setup(|app| {
             // --- 新增：处理静默启动逻辑 ---

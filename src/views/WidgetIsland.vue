@@ -8,7 +8,8 @@
             <div class="island-core-content" :style="coreContentStyle">
                 <div class="inner-wrapper">
                     <transition @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                        <div class="msg-box" v-show="isMsgActive" key="msg">
+                        <div class="msg-box" v-show="isMsgActive" key="msg" @click="handleMsgClick"
+                            style="cursor: pointer;">
                             <div class="msg-avatar">
                                 <img :src="currentMsgIcon" alt="消息图标" class="msg-avatar-img">
                             </div>
@@ -25,19 +26,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                         </div>
                     </transition>
@@ -492,6 +493,13 @@ const handleMouseDown = async (event: MouseEvent) => {
     // 如果点击的是按钮或按钮内部的 SVG 图标，直接返回，不触发拖拽
     if ((event.target as HTMLElement).closest('.ctl-btn')) return;
 
+    const target = event.target as HTMLElement;
+
+    // 如果点击的是按钮或者消息框，直接返回，不触发窗口拖拽
+    if (target.closest('.ctl-btn') || target.closest('.msg-box')) {
+        return;
+    }
+
     // 只有按鼠标左键时才触发窗口拖拽，把右键留给自定义菜单
     if (event.button === 0) {
         try {
@@ -635,6 +643,26 @@ const currentHeight = ref(42);
 const isMsgActive = ref(false);
 const msgTitle = ref('');
 const msgBody = ref('');
+const msgAumid = ref('');
+
+// 👇把里面的 app_name 改回 appName
+const handleMsgClick = async () => {
+    if (msgAumid.value || msgTitle.value) {
+        try {
+            // 听 Tauri 的话，这里必须用驼峰命名的 appName
+            await invoke('open_app_by_aumid', {
+                aumid: msgAumid.value,
+                appName: msgTitle.value 
+            });
+
+            isMsgActive.value = false;
+            animateIslandSize(260, 42);
+            if ((window as any).msgTimer) clearTimeout((window as any).msgTimer);
+        } catch (err) {
+            console.error('打开程序失败:', err);
+        }
+    }
+};
 
 // 同步追踪窗口位置（物理像素），动画中直接读取，无需任何 async
 let trackedPhysicalX = 0;
@@ -813,6 +841,7 @@ onMounted(async () => {
 
                     // 1. 标题直接显示程序名
                     msgTitle.value = res.app_name;
+                    msgAumid.value = res.aumid;
 
                     // 2. 内容拼接原来的 [标题: 内容]
                     if (res.body) {
@@ -1246,6 +1275,7 @@ onUnmounted(() => {
     z-index: 10;
     gap: 12px;
     /* 图标与文本的间距 */
+    -webkit-app-region: no-drag;
 }
 
 /* 预制消息图标/头像样式 */
