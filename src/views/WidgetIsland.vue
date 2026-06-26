@@ -26,19 +26,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                         </div>
                     </transition>
@@ -113,8 +113,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, type CSSProperties } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow, currentMonitor, PhysicalPosition, LogicalPosition, LogicalSize } from '@tauri-apps/api/window';
-import { Menu, MenuItem } from '@tauri-apps/api/menu';
+import { getCurrentWindow, currentMonitor, PhysicalPosition, LogicalPosition, PhysicalSize } from '@tauri-apps/api/window'; import { Menu, MenuItem } from '@tauri-apps/api/menu';
 import { listen, emit } from '@tauri-apps/api/event';
 
 const isIslandVisible = ref(false);
@@ -200,11 +199,11 @@ const snapToBottomLeft = async () => {
         const monitor = await currentMonitor();
 
         if (monitor) {
-            const scaleFactor = await appWindow.scaleFactor();
+            const scaleFactor = window.devicePixelRatio;
 
             const WINDOW_INIT_WIDTH = currentWidth.value;
             const WINDOW_INIT_HEIGHT = currentHeight.value;
-            await appWindow.setSize(new LogicalSize(WINDOW_INIT_WIDTH, WINDOW_INIT_HEIGHT));
+            await appWindow.setSize(new PhysicalSize(Math.ceil(WINDOW_INIT_WIDTH * scaleFactor), Math.ceil(WINDOW_INIT_HEIGHT * scaleFactor)));
 
             const monitorLeftPhysical = monitor.position.x;
             const monitorTopPhysical = monitor.position.y;
@@ -438,11 +437,11 @@ const adjustWindowPosition = async () => {
         const monitor = await currentMonitor();
 
         if (monitor) {
-            const scaleFactor = await appWindow.scaleFactor();
+            const scaleFactor = window.devicePixelRatio;
 
             const WINDOW_INIT_WIDTH = currentWidth.value;   // 默认 260
             const WINDOW_INIT_HEIGHT = currentHeight.value; // 默认 42
-            await appWindow.setSize(new LogicalSize(WINDOW_INIT_WIDTH, WINDOW_INIT_HEIGHT));
+            await appWindow.setSize(new PhysicalSize(Math.ceil(WINDOW_INIT_WIDTH * scaleFactor), Math.ceil(WINDOW_INIT_HEIGHT * scaleFactor)));
 
             const monitorWidthPhysical = monitor.size.width;
             const monitorLeftPhysical = monitor.position.x;
@@ -720,7 +719,6 @@ const handleMsgClick = async () => {
 // 同步追踪窗口位置（物理像素），动画中直接读取，无需任何 async
 let trackedPhysicalX = 0;
 let trackedPhysicalY = 0;
-let trackedScaleFactor = 1;
 
 // 灵动岛核心代码！（动画函数）
 const animateIslandSize = (targetWidth: number, targetHeight: number) => {
@@ -733,9 +731,10 @@ const animateIslandSize = (targetWidth: number, targetHeight: number) => {
     const duration = 600;
 
     const appWindow = getCurrentWindow();
+    const dpr = window.devicePixelRatio; // 使用浏览器真实缩放率，不再依赖 Tauri 滞后的底层计算
 
     // 动画开始时，锁定当前的中心点（物理像素）
-    const centerPhysicalX = trackedPhysicalX + (startWidth * trackedScaleFactor) / 2;
+    const centerPhysicalX = trackedPhysicalX + (startWidth * dpr) / 2;
     const originPhysicalY = trackedPhysicalY;
 
     const run = (time: number) => {
@@ -752,12 +751,11 @@ const animateIslandSize = (targetWidth: number, targetHeight: number) => {
         currentHeight.value = newHeight;
 
         // 绝对计算：新的左边缘 = 中心点 - 新宽度的一半
-        const newLeftX = Math.round(centerPhysicalX - (newWidth * trackedScaleFactor) / 2);
+        const newLeftX = Math.round(centerPhysicalX - (newWidth * dpr) / 2);
 
         // 先 setPosition，再 setSize
-        // 先把窗口挪到正确的左边缘位置，再让窗口从这个位置往右长大
         appWindow.setPosition(new PhysicalPosition(newLeftX, originPhysicalY)).catch(() => { });
-        appWindow.setSize(new LogicalSize(newWidth, newHeight)).catch(() => { });
+        appWindow.setSize(new PhysicalSize(Math.ceil(newWidth * dpr), Math.ceil(newHeight * dpr))).catch(() => { });
 
         if (progress < 1) {
             requestAnimationFrame(run);
@@ -766,10 +764,10 @@ const animateIslandSize = (targetWidth: number, targetHeight: number) => {
             currentHeight.value = targetHeight;
 
             // 动画结束，精确锁定最终追踪位置
-            trackedPhysicalX = Math.round(centerPhysicalX - (targetWidth * trackedScaleFactor) / 2);
+            trackedPhysicalX = Math.round(centerPhysicalX - (targetWidth * dpr) / 2);
 
             appWindow.setPosition(new PhysicalPosition(trackedPhysicalX, originPhysicalY)).catch(() => { });
-            appWindow.setSize(new LogicalSize(targetWidth, targetHeight)).catch(() => { });
+            appWindow.setSize(new PhysicalSize(Math.ceil(targetWidth * dpr), Math.ceil(targetHeight * dpr))).catch(() => { });
         }
     };
 
@@ -850,7 +848,6 @@ onMounted(async () => {
         const pos = await appWindow.innerPosition();
         trackedPhysicalX = pos.x;
         trackedPhysicalY = pos.y;
-        trackedScaleFactor = await appWindow.scaleFactor();
     } catch (e) { }
 
     // 窗口被拖动后自动同步位置
