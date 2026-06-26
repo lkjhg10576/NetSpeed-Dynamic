@@ -349,6 +349,24 @@ fn open_app_by_aumid(aumid: String, app_name: String) {
     }
 }
 
+#[tauri::command]
+fn force_window_topmost(app: tauri::AppHandle) {
+    #[cfg(target_os = "windows")]
+    if let Some(win) = app.get_webview_window("widget") {
+        if let Ok(hwnd) = win.hwnd() {
+            unsafe {
+                // 直接调用 Windows 底层 API，-1 代表 HWND_TOPMOST，3 代表 SWP_NOMOVE | SWP_NOSIZE
+                winapi::um::winuser::SetWindowPos(
+                    hwnd.0 as _,
+                    -1isize as _, 
+                    0, 0, 0, 0,
+                    3, 
+                );
+            }
+        }
+    }
+}
+
 struct AppState {
     networks: Mutex<Networks>,
     system: Mutex<System>,
@@ -429,6 +447,7 @@ pub fn run() {
             fetch_latest_notification,
             get_hardware_stats,
             open_app_by_aumid,
+            force_window_topmost,
         ])
         .setup(|app| {
             // --- 新增：处理静默启动逻辑 ---

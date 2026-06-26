@@ -181,7 +181,6 @@
                     <div class="set-item">
                         <div class="set-item-meta">
                             <span class="set-item-title">系统硬件监控 <p class="set-item-pro-tag">PRO</p>
-                                <p class="set-item-new-tag">NEW</p>
                             </span>
                             <span class="set-item-desc">显示 CPU / 内存实时占用情况</span>
                         </div>
@@ -193,13 +192,13 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title"></span>
-                            <span class="set-item-desc"></span>
+                            <span class="set-item-title">置于任务栏 <p class="set-item-new-tag">NEW</p></span>
+                            <span class="set-item-desc">将灵动岛锁定至任务栏左下角</span>
                         </div>
-                        <!-- <label class="switch">
+                        <label class="switch">
                             <input type="checkbox" v-model="disableBtn">
                             <span class="slider"></span>
-                        </label> -->
+                        </label>
                     </div>
 
                     <div class="set-item">
@@ -277,7 +276,8 @@ const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
 const enableMusicCtrl = ref(localStorage.getItem('nsd_music_ctrl') === 'true');
 const enableMsgNotify = ref(localStorage.getItem('nsd_msg_notify') === 'true');
 const enableHardwareMon = ref(localStorage.getItem('nsd_hardware_mon') === 'true');
-let wasMusicEnabledBeforeHardware = false; // 用于记忆原来音乐控制器是不是开着的
+const disableBtn = ref(false);
+let wasMusicEnabledBeforeHardware = false;
 
 // 新增切换保存方法
 const toggleMsgNotify = () => {

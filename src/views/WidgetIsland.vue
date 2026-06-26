@@ -26,19 +26,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                         </div>
                     </transition>
@@ -814,6 +814,11 @@ onMounted(async () => {
 
     // 在你原有的每秒刷新定时器中，顺带执行音乐同步
     speedTimer = setInterval(async () => {
+        // 👇 彻底修复：绕过 Tauri 缓存，每秒向 Windows 底层强行索要一次最高置顶权
+        if (isIslandVisible.value) {
+            invoke('force_window_topmost').catch(() => { });
+        }
+
         fetchSpeedStats();
         if (isMusicCtlEnabled.value) {
             syncMusicStatus(); // 当音乐控制器启用时，每秒顺带检查网易云
