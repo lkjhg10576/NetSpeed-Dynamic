@@ -191,6 +191,9 @@ const coverCache = new Map<string, string>();
 // 记录是否开启了置于任务栏
 const isPinnedToTaskbar = ref(localStorage.getItem('nsd_pin_taskbar') === 'true');
 
+// 记录消息模式开关状态
+const isMsgModeEnabled = ref(localStorage.getItem('nsd_msg_mode') === 'true');
+
 // 计算并吸附到左下角的方法
 const snapToBottomLeft = async () => {
     try {
@@ -866,6 +869,22 @@ onMounted(async () => {
         }
     });
 
+    // 监听消息模式开关
+    await listen<{ enabled: boolean }>('control-msg-mode', async (event) => {
+        isMsgModeEnabled.value = event.payload.enabled;
+        if (isMsgModeEnabled.value && !isMsgActive.value) {
+            // 如果开启了消息模式，并且当前没有消息，立刻隐藏
+            isIslandVisible.value = false;
+        } else if (!isMsgModeEnabled.value) {
+            // 如果关闭了消息模式，立刻恢复显示
+            await getCurrentWindow().show();
+            isIslandVisible.value = true;
+
+            // 【新增这一行】：通知控制台恢复开关状态，让主面板的开关同步变绿（开启）
+            await emit('island-status-sync', { visible: true });
+        }
+    });
+
     // 初始化位置追踪
     const appWindow = getCurrentWindow();
     try {
@@ -888,8 +907,11 @@ onMounted(async () => {
     }
 
     // 先显示透明的 Tauri 窗口，再触发 Vue 的灵动岛入场弹簧动画
-    await getCurrentWindow().show();
-    isIslandVisible.value = true;
+    // 如果没开消息模式，才在启动时直接显示灵动岛
+    if (!isMsgModeEnabled.value) {
+        await getCurrentWindow().show();
+        isIslandVisible.value = true;
+    }
 
     // 监听来自控制台的系统硬件监控开关
     await listen<{ enabled: boolean }>('control-hardware-mon', (event) => {
@@ -952,7 +974,14 @@ onMounted(async () => {
 
                     if (!isMsgActive.value) {
                         isMsgActive.value = true;
-                        // 👇 新增拦截：如果没有锁定在任务栏，才允许灵动岛变大
+
+                        // 【新增】：如果开了消息模式，先让窗口现身并触发入场动画
+                        if (isMsgModeEnabled.value && !isIslandVisible.value) {
+                            getCurrentWindow().show();
+                            isIslandVisible.value = true;
+                        }
+
+                        // 👇 拦截：如果没有锁定在任务栏，才允许灵动岛变大
                         if (!isPinnedToTaskbar.value) {
                             animateIslandSize(360, 65);
                         }
@@ -961,8 +990,18 @@ onMounted(async () => {
                     if ((window as any).msgTimer) clearTimeout((window as any).msgTimer);
                     (window as any).msgTimer = setTimeout(() => {
                         isMsgActive.value = false;
-                        // 💡 恢复时不需要加判断。如果它在任务栏(没变大)，这个恢复指令就等于“原地不动”，非常安全！
+                        // 💡 恢复时缩小尺寸
                         animateIslandSize(260, 42);
+
+                        // 【新增】：如果是消息模式，等缩小动画放完（约 600 毫秒）再隐藏窗口
+                        if (isMsgModeEnabled.value) {
+                            setTimeout(() => {
+                                // 确认期间没有新的消息进来，再把它藏掉触发离场动画
+                                if (!isMsgActive.value) {
+                                    isIslandVisible.value = false;
+                                }
+                            }, 600);
+                        }
                     }, 5000);
                 }
             } catch (err) {

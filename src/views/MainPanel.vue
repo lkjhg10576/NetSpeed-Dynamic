@@ -206,13 +206,13 @@
                         </label>
                     </div>
 
-                    <div class="set-item disabled-set-item">
+                    <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title">消息模式 <p class="set-item-pro-tag">即将推出</p></span>
-                            <span class="set-item-desc">默认隐藏灵动岛，收到消息后弹出</span>
+                            <span class="set-item-title">消息模式</span>
+                            <span class="set-item-desc">平时自动隐藏，收到消息后才弹出</span>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" v-model="disableBtn" disabled>
+                            <input type="checkbox" v-model="msgModeEnabled" @change="toggleMsgMode">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -282,7 +282,7 @@ const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
 const enableMusicCtrl = ref(localStorage.getItem('nsd_music_ctrl') === 'true');
 const enableMsgNotify = ref(localStorage.getItem('nsd_msg_notify') === 'true');
 const enableHardwareMon = ref(localStorage.getItem('nsd_hardware_mon') === 'true');
-const disableBtn = ref(false);
+const msgModeEnabled = ref(localStorage.getItem('nsd_msg_mode') === 'true');
 let wasMusicEnabledBeforeHardware = false;
 
 // 置于任务栏状态，默认从本地存储读取
@@ -291,6 +291,12 @@ const pinToTaskbar = ref(localStorage.getItem('nsd_pin_taskbar') === 'true');
 const togglePinTaskbar = async () => {
     localStorage.setItem('nsd_pin_taskbar', String(pinToTaskbar.value));
     await emit('control-pin-taskbar', { enabled: pinToTaskbar.value });
+};
+
+// 切换消息模式并通知灵动岛
+const toggleMsgMode = async () => {
+    localStorage.setItem('nsd_msg_mode', String(msgModeEnabled.value));
+    await emit('control-msg-mode', { enabled: msgModeEnabled.value });
 };
 
 // 新增切换保存方法
