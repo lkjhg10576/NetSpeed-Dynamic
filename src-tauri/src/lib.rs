@@ -34,23 +34,40 @@ use windows::Media::Control::{
     GlobalSystemMediaTransportControlsSession,
 };
 
-// 💡 【这里就是后路】：专门用来寻找你要控制的那个软件
+// 👇 新增：全局记录当前选中的平台（默认空，由前端传来）
+static TARGET_PLAYER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+// 👇 新增：给前端调用的切换接口
+#[tauri::command]
+fn set_target_player(player: String) {
+    if let Ok(mut target) = TARGET_PLAYER.lock() {
+        *target = player;
+    }
+}
+
+// 💡 升级版后路：自动匹配你选择的软件
 fn get_target_media_session() -> Option<GlobalSystemMediaTransportControlsSession> {
-    // 获取系统的媒体控制器管理器
     let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
         .ok()?.get().ok()?;
     
-    // 获取当前所有在播放或注册了媒体的软件列表
     let sessions = manager.GetSessions().ok()?;
 
+    // 获取当前的目标（前端如果还没传，默认用 netease）
+    let target = {
+        let guard = TARGET_PLAYER.lock().unwrap();
+        if guard.is_empty() { "netease".to_string() } else { guard.clone() }
+    };
+
     for session in sessions {
-        // 获取软件的标识符 (AUMID)
         if let Ok(app_id) = session.SourceAppUserModelId() {
             let app_id_str = app_id.to_string().to_lowercase();
             
-            // 🎯 目前只锁定网易云音乐 (包含 cloudmusic 或 netease)
-            // 以后你要加 Spotify 或 QQ音乐，直接在这里加 || app_id_str.contains("qqmusic") 即可
-            if app_id_str.contains("cloudmusic") || app_id_str.contains("netease") {
+            // 🎯 网易云特殊一点，包名可能叫 cloudmusic 或 netease
+            if target == "netease" && (app_id_str.contains("cloudmusic") || app_id_str.contains("netease")) {
+                return Some(session);
+            } 
+            // 🎯 其他软件直接用名字去系统进程列表里撞
+            else if target != "netease" && app_id_str.contains(&target) {
                 return Some(session);
             }
         }
@@ -519,6 +536,7 @@ pub fn run() {
             open_app_by_aumid,
             force_window_topmost,
             set_window_bounds,
+            set_target_player,
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();

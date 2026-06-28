@@ -319,7 +319,7 @@ const syncMusicStatus = async () => {
             isPlaying.value = playing;
         } else {
             // 没检测到播放时，清空状态
-            currentTrackInfo.value = '未在播放歌曲 - 网易云音乐';
+            currentTrackInfo.value = `未在播放歌曲 - ${getPlayerName()}`;
             isPlaying.value = false;
             coverUrl.value = ''; // 没歌时清空，显示默认的优美渐变色
         }
@@ -329,7 +329,13 @@ const syncMusicStatus = async () => {
 };
 
 const showInfo = ref(false);
-const currentTrackInfo = ref('未在播放歌曲 - 未知歌手'); // 默认显示内容
+// 默认显示内容动态从本地缓存读取
+const getPlayerName = () => {
+    const key = localStorage.getItem('nsd_target_player') || 'netease';
+    const map: Record<string, string> = { 'netease': '网易云音乐', 'spotify': 'Spotify', 'apple': 'Apple Music', 'qqmusic': 'QQ音乐', 'kugou': '酷狗音乐', 'echo': 'Echo Music' };
+    return map[key] || '未知平台';
+};
+const currentTrackInfo = ref(`未在播放歌曲 - ${getPlayerName()}`);
 let hideControlsTimer: number | null = null;
 
 // 启动倒计时隐藏控件

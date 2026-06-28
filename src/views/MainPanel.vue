@@ -156,6 +156,46 @@
             <template v-else>
                 <!-- 移除内部标题头，直接使用 grid 布局铺满 -->
                 <div class="dynamicset-grid">
+                    <div class="set-item-top"
+                        style="grid-column: span 2; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px;">
+                        <div class="set-item-meta"
+                            style="flex-direction: row; justify-content: space-between; width: 100%; align-items: center;">
+                            <span class="set-item-title-top">音乐控制平台</span>
+                            <span class="set-item-desc" style="font-size: 11px;">选择灵动岛显示的音乐平台</span>
+                        </div>
+                        <div class="capsule-switch player-grid">
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'netease' }"
+                                @click="setTargetPlayer('netease')">
+                                <img src="../assets/musci163.svg" class="platform-icon" alt="icon">
+                                网易云
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'spotify' }"
+                                @click="setTargetPlayer('spotify')">
+                                <img src="../assets/Spotify.svg" class="platform-icon" alt="icon">
+                                Spotify
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'apple' }"
+                                @click="setTargetPlayer('apple')">
+                                <img src="../assets/applemusic.svg" class="platform-icon" alt="icon">
+                                Apple
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'qqmusic' }"
+                                @click="setTargetPlayer('qqmusic')">
+                                <img src="../assets/qqmusic.svg" class="platform-icon" alt="icon">
+                                QQ音乐
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'kugou' }"
+                                @click="setTargetPlayer('kugou')">
+                                <img src="../assets/kugou.svg" class="platform-icon" alt="icon">
+                                酷狗
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'echo' }"
+                                @click="setTargetPlayer('echo')">
+                                <img src="../assets/echomusic.ico" class="platform-icon" alt="icon">
+                                EchoMusic
+                            </div>
+                        </div>
+                    </div>
                     <div class="set-item">
                         <div class="set-item-meta">
                             <span class="set-item-title">灵动岛颜色</span>
@@ -195,7 +235,7 @@
                         <div class="set-item-meta">
                             <span class="set-item-title">系统硬件监控 <p class="set-item-pro-tag">PRO</p></span>
                             <span class="set-item-desc">{{ enableRotation ? '轮换开启中，已禁用' : '显示 CPU / GPU / 内存实时占用率'
-                                }}</span>
+                            }}</span>
                         </div>
                         <label class="switch">
                             <input type="checkbox" v-model="enableHardwareMon" @change="toggleHardwareMon"
@@ -286,6 +326,19 @@ const isDynamicSet = ref(false);
 
 const isChecking = ref(false);
 const hasNewVersion = ref(false);
+
+// --- 音乐控制平台切换功能 ---
+const targetPlayer = ref(localStorage.getItem('nsd_target_player') || 'netease');
+
+const setTargetPlayer = async (player: string) => {
+    targetPlayer.value = player;
+    localStorage.setItem('nsd_target_player', player); // 本地记忆化
+    try {
+        await invoke('set_target_player', { player }); // 秒发给 Rust 立即生效
+    } catch (e) {
+        console.error('切换平台失败', e);
+    }
+};
 
 // 灵动岛设置相关的 UI 状态绑定
 const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
@@ -817,6 +870,9 @@ watch(enableMusicCtrl, async (newVal) => {
 });
 
 onMounted(async () => {
+    // 告诉 Rust 上次绑定的目标是谁
+    await invoke('set_target_player', { player: targetPlayer.value }).catch(() => { });
+
     silentCheckUpdate();
 
     window.addEventListener('contextmenu', (e) => {
@@ -1323,7 +1379,7 @@ input:checked+.slider:before {
 }
 
 .panel-footer {
-    margin-top: 32px;
+    margin-top: 20px;
     display: flex;
     flex-direction: row;
     justify-content: space-between;
@@ -1538,7 +1594,7 @@ input:checked+.slider:before {
     border-radius: 20px;
     padding: 0;
     box-shadow: 0 4px 20px -2px var(--card-shadow);
-    max-height: calc(100vh - 220px);
+    max-height: calc(100vh - 180px);
     overflow-y: auto;
     align-content: start;
 }
@@ -1571,9 +1627,23 @@ input:checked+.slider:before {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 105px;
+    height: 95px;
     padding: 0 24px;
     box-sizing: border-box;
+}
+
+.set-item-top {
+    background: transparent;
+    border: none;
+    margin: 0;
+    border-radius: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 75px;
+    padding: 0 24px;
+    box-sizing: border-box;
+    transform: translateY(5px);
 }
 
 .disabled-set-item {
@@ -1588,6 +1658,15 @@ input:checked+.slider:before {
 
 .set-item-title {
     font-size: 14px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    max-height: 24px;
+    color: var(--item-title-color);
+}
+
+.set-item-title-top {
+    font-size: 13px;
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -1853,5 +1932,45 @@ input:checked+.slider:before {
 input:disabled+.slider {
     cursor: not-allowed;
     opacity: 0.5;
+}
+
+/* 音乐平台六宫格样式 */
+.player-grid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    width: 100%;
+    padding: 4px;
+    box-sizing: border-box;
+}
+
+/* 改用 flex 布局，让图片和文字完美对齐 */
+.player-grid .capsule-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    /* 图标和文字之间的间距 */
+    padding: 4px 0;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+/* 限制图标的尺寸，避免图片太大把盒子撑爆 */
+.platform-icon {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    /* 保证图标不变形 */
+    opacity: 0.8;
+    /* 给一点点透明度，显得不那么刺眼 */
+    transition: opacity 0.2s ease;
+    transform: translateX(-3px) translateY(1px);
+    border-radius: 3px;
+}
+
+/* 当选中该平台时，让图标变亮完全不透明 */
+.capsule-btn.is-active .platform-icon {
+    opacity: 1;
 }
 </style>
