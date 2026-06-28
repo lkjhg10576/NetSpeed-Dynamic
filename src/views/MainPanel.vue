@@ -94,10 +94,28 @@
                     </div>
 
                     <div class="setting-item slider-item">
-                        <div class="item-meta">
-                            <span class="item-title">灵动岛不透明度</span>
+                        <div class="item-meta" style="width: 100%;">
+                            <div class="combo-title-row">
+                                <span class="item-title">灵动岛不透明度</span>
+
+                                <span class="title-separator">|</span>
+
+                                <span class="item-title-sec">
+                                    置于任务栏
+                                    <span class="tooltip-wrapper" data-tooltip="若要在全屏游戏中使用灵动岛建议关闭此项">
+                                        <p class="set-item-tips-tag">🙋</p>
+                                    </span>
+                                </span>
+
+                                <label class="switch mini-switch" style="opacity: 0.8;">
+                                    <input type="checkbox" v-model="pinToTaskbar" @change="togglePinTaskbar">
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+
                             <span class="item-desc">调节灵动岛的背景透明度 ({{ opacity }}%)</span>
                         </div>
+
                         <input type="range" min="0" max="100" v-model="opacity" class="range-input" />
                     </div>
                 </div>
@@ -153,7 +171,7 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title">音乐控制器</span>
+                            <span class="set-item-title">音乐控制器 <p class="set-item-pro-tag">PRO</p></span>
                             <span class="set-item-desc">支持网易云音乐控制及歌曲信息显示</span>
                         </div>
                         <label class="switch">
@@ -187,27 +205,22 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title">
-                                置于任务栏
-                                <span class="tooltip-wrapper" data-tooltip="若要在全屏游戏中使用灵动岛建议关闭此项">
-                                    <p class="set-item-tips-tag">🙋</p>
-                                </span>
-                            </span>
-                            <span class="set-item-desc">将灵动岛锁定至任务栏左下角</span>
+                            <span class="set-item-title">静默消息模式</span>
+                            <span class="set-item-desc">平时自动隐藏，收到消息后才弹出</span>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" v-model="pinToTaskbar" @change="togglePinTaskbar">
+                            <input type="checkbox" v-model="msgModeEnabled" @change="toggleMsgMode">
                             <span class="slider"></span>
                         </label>
                     </div>
 
                     <div class="set-item">
                         <div class="set-item-meta">
-                            <span class="set-item-title">消息模式</span>
-                            <span class="set-item-desc">平时自动隐藏，收到消息后才弹出</span>
+                            <span class="set-item-title">灵动岛轮换</span>
+                            <span class="set-item-desc">在网速岛、音乐岛、硬件监控间轮换</span>
                         </div>
                         <label class="switch">
-                            <input type="checkbox" v-model="msgModeEnabled" @change="toggleMsgMode">
+                            <input type="checkbox">
                             <span class="slider"></span>
                         </label>
                     </div>
@@ -1202,6 +1215,16 @@ const toggleWidget = async () => {
     gap: 8px;
 }
 
+.item-title-sec {
+    height: 22px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--item-title-color);
+    opacity: 0.8;
+    display: flex;
+    align-items: center;
+}
+
 .item-desc {
     font-size: 13px;
     color: var(--item-desc-color);
@@ -1489,33 +1512,52 @@ input:checked+.slider:before {
 .dynamicset-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr 1fr;
     gap: 0;
     background: var(--card-bg);
     border: 1px solid var(--card-border);
     border-radius: 20px;
     padding: 0;
     box-shadow: 0 4px 20px -2px var(--card-shadow);
-    height: 100%;
-    min-height: 0;
-    /* overflow: hidden; */
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+    align-content: start;
+}
+
+/* 👇 新增：自定义迷你滑块 (Webkit 标准) */
+.dynamicset-grid::-webkit-scrollbar {
+    width: 5px;
+}
+
+.dynamicset-grid::-webkit-scrollbar-track {
+    background: transparent;
+    margin: 12px 0;
+}
+
+.dynamicset-grid::-webkit-scrollbar-thumb {
+    background-color: var(--slider-bg);
+    border-radius: 10px;
+}
+
+.dynamicset-grid::-webkit-scrollbar-thumb:hover {
+    background-color: var(--slider-checked-bg);
 }
 
 /* 设置项：去掉独立背景和边框，融入容器 */
 .set-item {
     background: transparent;
     border: none;
-    padding: 20px 24px;
     margin: 0;
     border-radius: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
+    height: 105px;
+    padding: 0 24px;
+    box-sizing: border-box;
 }
 
 .disabled-set-item {
     opacity: 0.6;
-    /* cursor: not-allowed; */
 }
 
 .set-item-meta {
@@ -1760,5 +1802,31 @@ input:checked+.slider:before {
     min-height: 180px;
     border-top: 1px solid var(--chart-border);
     padding-top: 16px;
+}
+
+
+/* =========================================
+   常规设置 - 标题与开关缝合样式
+   ========================================= */
+
+/* 标题行横向排列，垂直居中 */
+.combo-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 分割线样式 */
+.title-separator {
+    color: var(--control-border);
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* 缩小的迷你开关，靠左对齐紧贴着标题 */
+.mini-switch {
+    transform: scale(0.65);
+    transform-origin: left center;
+    margin: 0;
 }
 </style>
