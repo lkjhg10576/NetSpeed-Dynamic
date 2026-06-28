@@ -26,19 +26,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                }}</span>
+                                    }}</span>
                             </div>
                         </div>
                     </transition>
@@ -636,55 +636,29 @@ const onInnerEnter = (el: Element, done: () => void) => {
     const htmlEl = el as HTMLElement;
     let start = performance.now();
 
-    if (htmlEl.classList.contains('music-ctl-box')) {
-        const freq = 2.0;
-        const decay = 10.5;
-        const duration = 600;
+    // 统一使用简单的渐变淡入 (200毫秒)
+    const duration = 200;
+    htmlEl.style.transformOrigin = 'center';
+    htmlEl.style.opacity = '0';
+    htmlEl.style.transform = 'none'; // 确保没有位移
 
-        htmlEl.style.transform = `translateY(20px)`;
-        htmlEl.style.opacity = '0';
+    const animate = (time: number) => {
+        let progress = (time - start) / duration;
+        htmlEl.style.opacity = Math.min(1, progress).toString();
 
-        const animate = (time: number) => {
-            let t = (time - start) / 1000;
-            let progress = (time - start) / duration;
+        if (progress < 1) {
+            requestAnimationFrame(animate);
+        } else {
+            htmlEl.style.opacity = '1';
+            done();
 
-            let spring = 1 - Math.cos(freq * t * 2 * Math.PI) * Math.exp(-decay * t);
-            let opacity = Math.min(1, progress * 4);
-            let y = 20 * (1 - spring);
-
-            htmlEl.style.transform = `translateY(${y}px)`;
-            htmlEl.style.opacity = opacity.toString();
-
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                htmlEl.style.transform = 'none';
-                htmlEl.style.opacity = '1';
-                done();
+            // 只有音乐控制器需要在动画结束后开启“隐藏控件”的倒计时
+            if (htmlEl.classList.contains('music-ctl-box')) {
                 startHideTimer();
             }
-        };
-        requestAnimationFrame(animate);
-    } else {
-        // 网速盒与消息盒共用此处的渐变淡入
-        const duration = 200;
-        htmlEl.style.transformOrigin = 'center';
-        htmlEl.style.opacity = '0';
-        htmlEl.style.transform = 'none';
-
-        const animate = (time: number) => {
-            let progress = (time - start) / duration;
-            htmlEl.style.opacity = Math.min(1, progress).toString();
-
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                htmlEl.style.opacity = '1';
-                done();
-            }
-        };
-        requestAnimationFrame(animate);
-    }
+        }
+    };
+    requestAnimationFrame(animate);
 };
 
 const onInnerLeave = (el: Element, done: () => void) => {

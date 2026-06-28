@@ -5,7 +5,7 @@
                 <img src="../assets/logo.png" class="logo-icon">
                 <div>
                     <h1>NetSpeed Dynamic Pro</h1>
-                    <p class="subtitle">NSD 桌面动态组件 v{{ appVersion }}</p>
+                    <p class="subtitle">NSD 桌面灵动岛组件 v{{ appVersion }}</p>
                 </div>
             </div>
 
@@ -31,7 +31,7 @@
             <template v-if="!isDynamicSet">
                 <div class="card status-card">
                     <div class="card-header-row">
-                        <h3>当前实时状态</h3>
+                        <h3>实时状态</h3>
                         <button class="stats-toggle-btn" @click="toggleRightPanel">
                             {{ rightPanel === 'settings' ? '数据统计' : '退出' }}
                         </button>
@@ -72,8 +72,8 @@
 
                     <div class="setting-item flex-row-item">
                         <div class="item-meta">
-                            <span class="item-title">显示模式</span>
-                            <span class="item-desc">切换亮色、暗色或跟随系统</span>
+                            <span class="item-title">主题颜色</span>
+                            <span class="item-desc">切换控制台主题色</span>
                         </div>
                         <select v-model="themeMode" class="theme-select" @change="handleThemeChange">
                             <option value="light">浅色模式</option>
@@ -84,7 +84,7 @@
 
                     <div class="setting-item">
                         <div class="item-meta">
-                            <span class="item-title">开机自动启动</span>
+                            <span class="item-title">开机自启动</span>
                             <span class="item-desc">跟随系统启动 NSD</span>
                         </div>
                         <label class="switch">
@@ -95,8 +95,8 @@
 
                     <div class="setting-item slider-item">
                         <div class="item-meta">
-                            <span class="item-title">悬浮窗不透明度</span>
-                            <span class="item-desc">调节灵动岛的外观透明度 ({{ opacity }}%)</span>
+                            <span class="item-title">灵动岛不透明度</span>
+                            <span class="item-desc">调节灵动岛的背景透明度 ({{ opacity }}%)</span>
                         </div>
                         <input type="range" min="0" max="100" v-model="opacity" class="range-input" />
                     </div>
