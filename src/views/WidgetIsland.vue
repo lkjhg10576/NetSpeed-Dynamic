@@ -290,7 +290,7 @@ const syncMusicStatus = async () => {
             const [song, artist, playing] = res;
 
             // 拼接新的歌曲信息
-            const newTrackInfo = `${song} - ${artist}`;
+            const newTrackInfo = artist ? `${song} - ${artist}` : song;
 
             if (currentTrackInfo.value !== newTrackInfo) {
                 currentTrackInfo.value = newTrackInfo;
