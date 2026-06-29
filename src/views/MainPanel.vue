@@ -189,8 +189,8 @@
                                 <img src="../assets/kugou.svg" class="platform-icon" alt="icon">
                                 酷狗
                             </div>
-
-                            <div class="capsule-btn" style="opacity: 0.4; cursor: not-allowed; pointer-events: none;">
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'echo' }"
+                                @click="setTargetPlayer('echo')">
                                 <img src="../assets/echomusic.ico" class="platform-icon" alt="icon">
                                 EchoMusic
                             </div>
@@ -235,7 +235,7 @@
                         <div class="set-item-meta">
                             <span class="set-item-title">系统硬件监控 <p class="set-item-pro-tag">PRO</p></span>
                             <span class="set-item-desc">{{ enableRotation ? '轮换开启中，已禁用' : '显示 CPU / GPU / 内存实时占用率'
-                                }}</span>
+                            }}</span>
                         </div>
                         <label class="switch">
                             <input type="checkbox" v-model="enableHardwareMon" @change="toggleHardwareMon"
