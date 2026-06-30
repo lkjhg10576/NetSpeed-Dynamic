@@ -1,5 +1,5 @@
 use std::sync::Mutex;
-use tauri::{State, Manager};
+use tauri::{State, Manager, Emitter};
 use sysinfo::{Networks, System};
 use std::net::{SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
@@ -36,6 +36,13 @@ use windows::Media::Control::{
 
 // 👇 新增：全局记录当前选中的平台（默认空，由前端传来）
 static TARGET_PLAYER: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+
+// --- 全功能灵动岛智能双模动画锁 ---
+static ANIMATION_ID: AtomicU32 = AtomicU32::new(0);
+static ANIMATION_CENTER_X: Mutex<Option<i32>> = Mutex::new(None);
+static ANIMATION_ORIGIN_Y: Mutex<Option<i32>> = Mutex::new(None);
+static ANIMATION_LEFT_X: Mutex<Option<i32>> = Mutex::new(None);
+static ANIMATION_BOTTOM_Y: Mutex<Option<i32>> = Mutex::new(None);
 
 // 👇 新增：给前端调用的切换接口
 #[tauri::command]
@@ -464,6 +471,120 @@ fn set_window_bounds(app: tauri::AppHandle, x: i32, y: i32, width: i32, height: 
     }
 }
 
+#[tauri::command]
+async fn start_island_animation(
+    window: tauri::WebviewWindow,
+    start_width: f64,
+    start_height: f64,
+    target_width: f64,
+    target_height: f64,
+    is_pinned: bool, // 接收前端的置于任务栏状态
+) -> Result<(), String> {
+    let id = ANIMATION_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    let scale_factor = window.scale_factor().unwrap_or(1.0);
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(hwnd) = window.hwnd() {
+            use winapi::um::winuser::{GetWindowRect, SetWindowPos};
+            use winapi::shared::windef::RECT;
+            use std::f64::consts::PI;
+
+            let mut rect: RECT = unsafe { std::mem::zeroed() };
+            unsafe { GetWindowRect(hwnd.0 as _, &mut rect); }
+
+            // 首次启动动画时，锁死当前的物理锚点，防止多重打断时发生坐标漂移
+            if ANIMATION_CENTER_X.lock().unwrap().is_none() {
+                *ANIMATION_CENTER_X.lock().unwrap() = Some(rect.left + (rect.right - rect.left) / 2);
+                *ANIMATION_ORIGIN_Y.lock().unwrap() = Some(rect.top);
+                *ANIMATION_LEFT_X.lock().unwrap() = Some(rect.left);
+                *ANIMATION_BOTTOM_Y.lock().unwrap() = Some(rect.bottom);
+            }
+
+            let window_clone = window.clone();
+            let hwnd_raw = hwnd.0 as isize;
+
+            // 异步抛给后台进行渲染，10ms 一帧非阻塞推进 (稳过 60 帧，上限取决于屏幕刷新率)
+            tokio::spawn(async move {
+                let start_time = std::time::Instant::now();
+                let duration = std::time::Duration::from_millis(400); // 400ms Snappy 高级回弹感
+                let freq = 2.4;
+                let decay = 12.0;
+
+                while start_time.elapsed() < duration {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+                    // 检查是否被后面的新指令打断
+                    if ANIMATION_ID.load(Ordering::SeqCst) != id {
+                        return;
+                    }
+
+                    let elapsed = start_time.elapsed().as_secs_f64();
+                    let progress = elapsed / 0.4;
+                    if progress >= 1.0 { break; }
+
+                    // 高阶标准弹簧衰减方程
+                    let spring = 1.0 - (freq * elapsed * 2.0 * PI).cos() * (-decay * elapsed).exp();
+                    let current_w = start_width + (target_width - start_width) * spring;
+                    let current_h = start_height + (target_height - start_height) * spring;
+
+                    // 换算物理像素
+                    let phys_window_w = (current_w * scale_factor).round() as i32;
+                    let phys_window_h = (current_h * scale_factor).round() as i32;
+
+                    // ✨ 核心修复：根据两种排版模式，进行完全不同的物理几何坐标计算
+                    let (final_x, final_y) = if is_pinned {
+                        // 任务栏靠左模式：左侧固定，底部固定，高度向上伸展
+                        let left_x = *ANIMATION_LEFT_X.lock().unwrap().as_ref().unwrap();
+                        let bottom_y = *ANIMATION_BOTTOM_Y.lock().unwrap().as_ref().unwrap();
+                        (left_x, bottom_y - phys_window_h)
+                    } else {
+                        // 顶部居中模式：中心点固定，高度向下伸展
+                        let center_x = *ANIMATION_CENTER_X.lock().unwrap().as_ref().unwrap();
+                        let origin_y = *ANIMATION_ORIGIN_Y.lock().unwrap().as_ref().unwrap();
+                        (center_x - phys_window_w / 2, origin_y)
+                    };
+
+                    unsafe {
+                        SetWindowPos(hwnd_raw as _, std::ptr::null_mut(), final_x, final_y, phys_window_w, phys_window_h, 0x0014);
+                    }
+
+                    // 顺畅地同步反馈给前端
+                    let _ = window_clone.emit("island-resize", vec![current_w, current_h]);
+                }
+
+                // 终点精准收尾
+                if ANIMATION_ID.load(Ordering::SeqCst) == id {
+                    let phys_target_w = (target_width * scale_factor).round() as i32;
+                    let phys_target_h = (target_height * scale_factor).round() as i32;
+
+                    let (final_x, final_y) = if is_pinned {
+                        let left_x = *ANIMATION_LEFT_X.lock().unwrap().as_ref().unwrap();
+                        let bottom_y = *ANIMATION_BOTTOM_Y.lock().unwrap().as_ref().unwrap();
+                        (left_x, bottom_y - phys_target_h)
+                    } else {
+                        let center_x = *ANIMATION_CENTER_X.lock().unwrap().as_ref().unwrap();
+                        let origin_y = *ANIMATION_ORIGIN_Y.lock().unwrap().as_ref().unwrap();
+                        (center_x - phys_target_w / 2, origin_y)
+                    };
+
+                    unsafe {
+                        SetWindowPos(hwnd_raw as _, std::ptr::null_mut(), final_x, final_y, phys_target_w, phys_target_h, 0x0014);
+                    }
+                    let _ = window_clone.emit("island-resize", vec![target_width, target_height]);
+
+                    // 全量清理锚点锁
+                    *ANIMATION_CENTER_X.lock().unwrap() = None;
+                    *ANIMATION_ORIGIN_Y.lock().unwrap() = None;
+                    *ANIMATION_LEFT_X.lock().unwrap() = None;
+                    *ANIMATION_BOTTOM_Y.lock().unwrap() = None;
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
 struct AppState {
     networks: Mutex<Networks>,
     system: Mutex<System>,
@@ -537,6 +658,7 @@ pub fn run() {
             force_window_topmost,
             set_window_bounds,
             set_target_player,
+            start_island_animation,
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().collect();

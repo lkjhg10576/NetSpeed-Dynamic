@@ -149,9 +149,8 @@ const islandStyle = computed<CSSProperties>(() => {
 
     return {
         ...baseStyle,
-        width: `${currentWidth.value}px`,
-        height: `${currentHeight.value}px`,
-        // 👇 新增这一行：高度大于 60 时变成带圆角的长方形，否则是胶囊
+        width: `${currentWidth.value}px`,   // ✨ 还原它：精确绑定
+        height: `${currentHeight.value}px`, // ✨ 还原它：精确绑定
         borderRadius: currentHeight.value > 60 ? '24px' : '100px',
         position: 'relative',
     };
@@ -270,9 +269,6 @@ const snapToBottomLeft = async () => {
 
             // 移动完成后，瞬间现身，生米煮成熟饭，Windows 也拦不住了！
             await appWindow.show();
-
-            trackedPhysicalX = Math.round(x);
-            trackedPhysicalY = Math.round(y);
         }
     } catch (error) {
         console.error('停靠左下角失败:', error);
@@ -488,9 +484,6 @@ const adjustWindowPosition = async () => {
             const y = monitorTopPhysical + (12 * scaleFactor);
 
             await appWindow.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
-
-            trackedPhysicalX = Math.round(x);
-            trackedPhysicalY = Math.round(y);
         }
     } catch (error) {
         console.error('调整窗口位置失败:', error);
@@ -755,116 +748,20 @@ const handleMsgClick = async () => {
     }
 };
 
-// 同步追踪窗口位置（物理像素），动画中直接读取，无需任何 async
-let trackedPhysicalX = 0;
-let trackedPhysicalY = 0;
-
-// 新增这行，用来记录当前动画 ID，方便随时打断
-let sizeAnimId = 0;
-// 1️⃣ 新增这行：用来记住绝对中心点，防止四舍五入误差积累
-let fixedCenterPhysicalX = 0;
-
-// 灵动岛核心代码！（完美防漂移+防裁切优化版）
-const animateIslandSize = (targetWidth: number, targetHeight: number) => {
-    // 核心逻辑：判断是不是“打断状态”
-    const isInterrupting = sizeAnimId !== 0;
-
-    if (isInterrupting) cancelAnimationFrame(sizeAnimId);
-
-    const startWidth = currentWidth.value;
-    const startHeight = currentHeight.value;
-
-    if (startWidth === targetWidth && startHeight === targetHeight) {
-        sizeAnimId = 0;
-        return;
+// 灵动岛核心代码！（完美防漂移+防裁切 Rust 托管版）
+const animateIslandSize = async (targetWidth: number, targetHeight: number) => {
+    try {
+        // 呼叫重构后的后台双模动画引擎
+        await invoke('start_island_animation', {
+            startWidth: currentWidth.value,
+            startHeight: currentHeight.value,
+            targetWidth: targetWidth,
+            targetHeight: targetHeight,
+            isPinned: isPinnedToTaskbar.value // ✨ 关键：告诉 Rust 是否锁定在任务栏左下角
+        });
+    } catch (err) {
+        console.error('呼叫 Rust 动画失败:', err);
     }
-
-    const appWindow = getCurrentWindow();
-    const dpr = window.devicePixelRatio;
-
-    // 终极防漂移机制：如果是在静止状态下启动，就计算中心点并锁死；如果是连点打断，直接沿用上一次锁死的中心点！
-    if (!isInterrupting) {
-        fixedCenterPhysicalX = trackedPhysicalX + (startWidth * dpr) / 2;
-    }
-
-    const centerPhysicalX = fixedCenterPhysicalX;
-    const originPhysicalY = trackedPhysicalY;
-
-    const start = performance.now();
-    const freq = 2.0;
-    const decay = 10.5;
-    const duration = 600;
-
-    let lastIpcTime = 0;
-
-    const run = (time: number) => {
-        const t = (time - start) / 1000;
-        const progress = (time - start) / duration;
-
-        // 标准弹簧曲线（供灵动岛 Vue 容器使用）
-        const spring = 1 - Math.cos(freq * t * 2 * Math.PI) * Math.exp(-decay * t);
-
-        const currentW = startWidth + (targetWidth - startWidth) * spring;
-        const currentH = startHeight + (targetHeight - startHeight) * spring;
-
-        // 1. 刷新 Vue 组件尺寸（内部靠 margin: 0 auto 自动物理居中）
-        currentWidth.value = currentW;
-        currentHeight.value = currentH;
-
-        // 2. 👇 【核心新增】计算底层 OS 窗口的“前导/滞后”特殊尺寸，完美干掉裁切
-        let windowW = currentW;
-        let windowH = currentH;
-
-        // --- 宽度边缘控制 ---
-        if (targetWidth > startWidth) {
-            // 【展开宽度】：时间乘以 1.5 倍速，让窗口边缘扩得比岛屿更快
-            const tLead = t * 1.5;
-            const springLead = 1 - Math.cos(freq * tLead * 2 * Math.PI) * Math.exp(-decay * tLead);
-            windowW = Math.max(currentW, startWidth + (targetWidth - startWidth) * springLead);
-        } else if (targetWidth < startWidth) {
-            // 【收缩宽度】：时间乘以 0.6 倍速，让窗口边缘缩得比岛屿更慢
-            const tLag = t * 0.6;
-            const springLag = 1 - Math.cos(freq * tLag * 2 * Math.PI) * Math.exp(-decay * tLag);
-            windowW = Math.max(currentW, startWidth + (targetWidth - startWidth) * springLag);
-        }
-
-        // --- 高度边缘控制 ---
-        if (targetHeight > startHeight) {
-            // 【展开高度】领先
-            const tLead = t * 1.5;
-            const springLead = 1 - Math.cos(freq * tLead * 2 * Math.PI) * Math.exp(-decay * tLead);
-            windowH = Math.max(currentH, startHeight + (targetHeight - startHeight) * springLead);
-        } else if (targetHeight < startHeight) {
-            // 【收缩高度】滞后
-            const tLag = t * 0.6;
-            const springLag = 1 - Math.cos(freq * tLag * 2 * Math.PI) * Math.exp(-decay * tLag);
-            windowH = Math.max(currentH, startHeight + (targetHeight - startHeight) * springLag);
-        }
-
-        // 3. 按照计算出的安全窗口尺寸（windowW / windowH）呼叫底层同步
-        if (time - lastIpcTime > 16) {
-            const currentLeftX = Math.round(centerPhysicalX - (windowW * dpr) / 2);
-            appWindow.setPosition(new PhysicalPosition(currentLeftX, originPhysicalY)).catch(() => { });
-            appWindow.setSize(new PhysicalSize(Math.ceil(windowW * dpr), Math.ceil(windowH * dpr))).catch(() => { });
-
-            trackedPhysicalX = currentLeftX;
-            lastIpcTime = time;
-        }
-
-        if (progress < 1) {
-            sizeAnimId = requestAnimationFrame(run);
-        } else {
-            // 动画彻底收尾，精准归位
-            sizeAnimId = 0;
-            currentWidth.value = targetWidth;
-            currentHeight.value = targetHeight;
-            trackedPhysicalX = Math.round(centerPhysicalX - (targetWidth * dpr) / 2);
-            appWindow.setPosition(new PhysicalPosition(trackedPhysicalX, originPhysicalY)).catch(() => { });
-            appWindow.setSize(new PhysicalSize(Math.ceil(targetWidth * dpr), Math.ceil(targetHeight * dpr))).catch(() => { });
-        }
-    };
-
-    sizeAnimId = requestAnimationFrame(run);
 };
 
 // 记录音乐岛是否处于展开状态
@@ -1020,16 +917,8 @@ onMounted(async () => {
     // 初始化位置追踪
     const appWindow = getCurrentWindow();
     try {
-        const pos = await appWindow.innerPosition();
-        trackedPhysicalX = pos.x;
-        trackedPhysicalY = pos.y;
+        await appWindow.innerPosition();
     } catch (e) { }
-
-    // 窗口被拖动后自动同步位置
-    appWindow.onMoved((event) => {
-        trackedPhysicalX = event.payload.x;
-        trackedPhysicalY = event.payload.y;
-    }).catch(() => { });
 
     // 根据本地记录决定启动时出现在哪
     if (isPinnedToTaskbar.value) {
@@ -1160,6 +1049,13 @@ onMounted(async () => {
             // 控制台关闭指令 -> 触发常规离开动画
             isIslandVisible.value = false;
         }
+    });
+
+    // 实时监听来自 Rust 底层发来的清透像素流，无缝同步给 Vue 的响应式 DOM 宽高
+    await listen<number[]>("island-resize", (event) => {
+        const [w, h] = event.payload;
+        currentWidth.value = w;
+        currentHeight.value = h;
     });
 });
 
@@ -1490,13 +1386,16 @@ onUnmounted(() => {
 /* 歌曲信息遮罩容器：挨着封面靠左，占据右侧剩余空间 */
 .music-info-mask-box {
     position: absolute;
-    left: 30px; /* 👉 修改这里：从 20px 改为 32px，给封面留出充足的呼吸空间 */
-    right: 18px; /* 给右侧网络指示灯留出安全间距 */
+    left: 30px;
+    /* 👉 修改这里：从 20px 改为 32px，给封面留出充足的呼吸空间 */
+    right: 18px;
+    /* 给右侧网络指示灯留出安全间距 */
     height: 100%;
     display: flex;
     align-items: center;
     overflow: hidden;
-    padding-left: 0; /* 👉 这里可以改为0，因为里面是绝对定位，写了也没用 */
+    padding-left: 0;
+    /* 👉 这里可以改为0，因为里面是绝对定位，写了也没用 */
     -webkit-app-region: no-drag;
     transform: translateY(-1px) translateX(-0.5px);
 
@@ -1708,43 +1607,44 @@ onUnmounted(() => {
 }
 
 /* ====================
-   终极一步到位修复版：边距完美对称、极致靠左
+   原汁原味排版 + 剥离冲突动画修复版
 ==================== */
 
+/* 1. 恢复原本的盒子过渡，但【绝对不能】使用 all，只给透明度留动画 */
 .music-ctl-box {
-    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.2);
+    transition: opacity 0.2s ease !important;
 }
 
-/* 展开时：强行清除可能影响对齐的默认父级内边距 */
 .music-ctl-box.expanded {
     flex-direction: column;
     align-items: flex-start;
     justify-content: flex-start;
     padding: 0 !important;
-    /* 👈 核心：清除原本多余的留白，才能真正靠到最左最上 */
 }
 
-/* 1. 精准锁定：上边距和左边距完全一致（都是14px） */
+/* 2. 顶部容器：取消 all 过渡，让它跟着 Rust 窗口的拉伸严丝合缝地重排 */
 .music-top-row {
     display: flex;
     align-items: center;
     width: 100%;
     height: 100%;
     position: relative;
-    transition: all 0.4s ease;
+    transition: none !important;
+    /* 👈 核心防抖魔法，取消 CSS 的挣扎 */
 }
 
 .music-ctl-box.expanded .music-top-row {
     height: 40px;
-    /* 封面尺寸 */
     margin-top: 14px !important;
-    /* 👆 上边距 */
     margin-left: 5px !important;
-    /* 👈 左边距，彻底实现完全对称靠左 */
     border: none;
 }
 
-/* 2. 封面：停止旋转，保持正方向 */
+/* 3. 封面：覆盖掉上面的 transition: all，只保留变形和圆角的过渡 */
+.album-cover {
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.2), border-radius 0.3s ease !important;
+}
+
 .music-ctl-box.expanded .album-cover {
     width: 40px !important;
     height: 40px !important;
@@ -1765,16 +1665,17 @@ onUnmounted(() => {
     transform: scale(1.05) translateX(0px) rotate(0deg) !important;
 }
 
-/* 3. 歌曲文字：强行推至左侧，剥离居中属性 */
+/* 4. 歌曲文本遮罩：取消过渡，随窗口大小瞬间变化 */
 .music-ctl-box.expanded .music-info-mask-box {
-    /* 14px左边距 + 46px封面 + 10px间距 = 70px 紧贴封面右侧 */
     left: 60px !important;
     right: 55px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-start !important;
+    transition: none !important;
 }
 
+/* 5. 你的两套文字过渡逻辑非常完美，全部保留原样（因为 opacity 不影响排版） */
 .music-info-text {
     position: absolute;
     left: 0 !important;
@@ -1782,8 +1683,6 @@ onUnmounted(() => {
     width: 100%;
     transform: translateY(-50%);
     transition: opacity 0.3s ease, transform 0.3s ease;
-
-    /* 强行抹去任何组件自带的居中，100%靠左 */
     text-align: left !important;
     display: flex !important;
     flex-direction: column !important;
@@ -1801,8 +1700,6 @@ onUnmounted(() => {
     align-items: center;
     text-align: center;
 }
-
-/* 未展开单行维持原样 */
 
 .single-line.fade-out {
     opacity: 0;
@@ -1839,7 +1736,7 @@ onUnmounted(() => {
     text-align: left !important;
 }
 
-/* 4. 媒体控件位置 */
+/* 6. 媒体控件与频谱 */
 .music-ctl-box.expanded .music-controls {
     position: absolute;
     left: 50%;
@@ -1860,12 +1757,12 @@ onUnmounted(() => {
     height: 28px;
 }
 
-/* 5. 频谱位置：完美与 46px 的封面中心线对齐 */
 .audio-spectrum.expanded {
     position: absolute;
     right: 18px !important;
     top: 27px !important;
     transform: scale(1.3);
-    transition: all 0.4s ease;
+    /* 把 all 换成具体的属性，防止抖动 */
+    transition: opacity 0.3s ease, transform 0.3s ease !important;
 }
 </style>
