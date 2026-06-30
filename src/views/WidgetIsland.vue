@@ -105,7 +105,14 @@
                     </transition>
                 </div>
 
-                <div :class="['status-dot', networkStatus]"></div>
+                <div v-if="displayMusic" class="audio-spectrum" :class="{ 'is-playing': isPlaying }">
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                    <span class="bar"></span>
+                </div>
+                <div v-else :class="['status-dot', networkStatus]"></div>
             </div>
         </div>
     </transition>
@@ -884,7 +891,7 @@ const animateIslandSize = (targetWidth: number, targetHeight: number) => {
 const isMusicExpanded = ref(false);
 let musicExpandTimer: number | null = null;
 
-// 自动收缩方法
+// 音乐控制器自动收缩方法
 const collapseMusic = () => {
     if (!isMusicExpanded.value) return;
     isMusicExpanded.value = false;
@@ -892,7 +899,7 @@ const collapseMusic = () => {
     animateIslandSize(260, 42); // 恢复到默认大小
 };
 
-// 点击展开方法
+// 音乐控制器点击展开方法
 const expandMusic = (e: MouseEvent) => {
     // 👇 新增防误触：如果鼠标发生了滑动（拖拽超过 5 像素），就不触发点击展开！
     if (Math.abs(e.clientX - mouseDownX) > 5 || Math.abs(e.clientY - mouseDownY) > 5) {
@@ -915,8 +922,7 @@ const expandMusic = (e: MouseEvent) => {
     // 2. 延迟 120 毫秒后，打断缩小，直接猛烈展开 (模拟果冻回弹)
     setTimeout(() => {
         isMusicExpanded.value = true;
-        // 宽度和消息一样(360)，高度加 50 左右(42+73=115)，形成带圆角的长方形
-        animateIslandSize(360, 115);
+        animateIslandSize(320, 115); //这里可以修改音乐控制器展开时的宽度！
 
         // 3. 开启 3 秒未响应自动收缩
         if (musicExpandTimer) clearTimeout(musicExpandTimer);
@@ -1657,5 +1663,72 @@ onUnmounted(() => {
 /* 👇 新增：当占用率达到 90% 及以上时触发的标准苹果亮红色 */
 .hw-value.high-usage {
     color: #f06861 !important;
+}
+
+/* 音乐律动频谱样式 */
+.audio-spectrum {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    /* 竖线之间的缝隙 */
+    height: 12px;
+    /* 给一个固定高度容器 */
+    padding-right: 2px;
+}
+
+/* 暂停状态下的竖线（统一高度） */
+.audio-spectrum .bar {
+    width: 2px;
+    height: 14px;
+    background-color: #b6e0ee;
+    border-radius: 3px;
+    transform-origin: center;
+    transform: scaleY(0.35);
+    transition: transform 0.4s ease;
+    will-change: transform;
+}
+
+/* 播放状态：挂载动画 */
+.audio-spectrum.is-playing .bar {
+    /* ease-in-out 让动画两头慢中间快，更像真实的音乐律动 */
+    animation: spectrum-bounce 0.3s ease-in-out infinite alternate;
+}
+
+/* 给每根竖线设置不同的速度和延迟，打破规律感 */
+.audio-spectrum.is-playing .bar:nth-child(1) {
+    animation-duration: 0.31s;
+    animation-delay: 0.0s;
+}
+
+.audio-spectrum.is-playing .bar:nth-child(2) {
+    animation-duration: 0.43s;
+    animation-delay: 0.2s;
+}
+
+.audio-spectrum.is-playing .bar:nth-child(3) {
+    animation-duration: 0.29s;
+    animation-delay: 0.4s;
+}
+
+.audio-spectrum.is-playing .bar:nth-child(4) {
+    animation-duration: 0.48s;
+    animation-delay: 0.1s;
+}
+
+.audio-spectrum.is-playing .bar:nth-child(5) {
+    animation-duration: 0.18s;
+    animation-delay: 0.0s;
+}
+
+/* 律动动画关键帧：在 35% 高度和 95% 高度之间来回回弹 */
+@keyframes spectrum-bounce {
+    0% {
+        transform: scaleY(0.35);
+    }
+
+    100% {
+        transform: scaleY(0.95);
+    }
 }
 </style>
