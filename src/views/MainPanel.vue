@@ -973,7 +973,7 @@ const toggleWidget = async () => {
     --bg-body: #f8fafc;
     --text-body: #1e293b;
     --h1-color: #0f172a;
-    --subtitle-color: #64748b;
+    --subtitle-color: #798089;
     --control-bg: #ffffff;
     --control-border: #e2e8f0;
     --status-badge-inactive: #94a3b8;
@@ -994,7 +994,7 @@ const toggleWidget = async () => {
     --item-title-color: #1e293b;
     --tag-dev-bg: #f1f5f9;
     --tag-dev-color: #64748b;
-    --item-desc-color: #64748b;
+    --item-desc-color: #898f99df;
     --slider-bg: #d7dce2;
     --slider-checked-bg: #b9b9b9;
     --slider-disabled-bg: #e2e8f0;
@@ -1030,7 +1030,7 @@ const toggleWidget = async () => {
     --bg-body: #1e2021;
     --text-body: #cbd5e1;
     --h1-color: #f8fafc;
-    --subtitle-color: #94a3b8;
+    --subtitle-color: #a5aeba;
     --control-bg: #292b2e;
     --control-border: #383c41;
     --status-badge-inactive: #64748b;
@@ -1051,7 +1051,7 @@ const toggleWidget = async () => {
     --item-title-color: #f8fafc;
     --tag-dev-bg: #334155;
     --tag-dev-color: #94a3b8;
-    --item-desc-color: #94a3b8;
+    --item-desc-color: #898f99df;
     --slider-bg: #3e4247;
     --slider-checked-bg: #5d646d;
     --slider-disabled-bg: #334155;
@@ -1059,7 +1059,7 @@ const toggleWidget = async () => {
     --range-thumb-bg: #1e293b;
     --range-thumb-border: #60a5fa;
     --range-thumb-shadow: rgba(0, 0, 0, 0.5);
-    --footer-text: #94a3b8aa;
+    --footer-text: #8b8f96aa;
     --overlay-bg: rgba(0, 0, 0, 0.6);
     --modal-bg: #292b2e;
     --modal-border: #383c41;
