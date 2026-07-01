@@ -271,14 +271,21 @@
         </div>
 
         <footer class="panel-footer">
-            <span>&copy; 2026 <button class="openmywebsite" @click="openMywebsite">Ryen.</button> All rights
-                reserved.</span>
-            <span class="action-link"
-                :style="{ opacity: isChecking ? 0.5 : 1, pointerEvents: isChecking ? 'none' : 'auto', position: 'relative' }"
-                @click="checkUpdate">
-                <span v-if="hasNewVersion" class="update-dot"></span>
-                {{ isChecking ? '检查中...' : (hasNewVersion ? '检测到新版本' : '检查更新') }}
-            </span>
+            <div class="ft_left">
+                <span>&copy; 2026 <button class="openmywebsite" @click="openMywebsite">Ryen.</button> All rights
+                    reserved.</span>
+                <span>NSDPRO v{{ appVersion }}</span>
+            </div>
+            <div class="ft_right">
+                <span class="action-link" @click="openNSDweb">官方网站</span>
+                <span class="action-link" @click="openNSDdata">开源数据</span>
+                <span class="action-link"
+                    :style="{ opacity: isChecking ? 0.5 : 1, pointerEvents: isChecking ? 'none' : 'auto', position: 'relative' }"
+                    @click="checkUpdate">
+                    <span v-if="hasNewVersion" class="update-dot"></span>
+                    {{ isChecking ? '检查中...' : (hasNewVersion ? '检测到新版本' : '检查更新') }}
+                </span>
+            </div>
         </footer>
 
         <Transition name="fade">
@@ -722,6 +729,14 @@ const silentCheckUpdate = async () => {
         // 静默模式失败就当无事发生
     }
 };
+
+const openNSDweb = async () => {
+    openUrl('https://nsd.georgewu.top/');
+}
+
+const openNSDdata = async () => {
+    openUrl('https://nsd.georgewu.top/#stats');
+}
 
 const checkUpdate = async () => {
     if (isChecking.value) return; // 防止连点
@@ -1395,6 +1410,14 @@ input:checked+.slider:before {
     display: flex;
 }
 
+.ft_left {
+    display: flex;
+    flex-direction: row;
+    justify-content: left;
+    align-items: center;
+    gap: 10px;
+}
+
 .openmywebsite {
     background: none;
     border: none;
@@ -1407,6 +1430,14 @@ input:checked+.slider:before {
 
 .openmywebsite:hover {
     text-decoration: underline;
+}
+
+.ft_right {
+    display: flex;
+    flex-direction: row;
+    justify-content: right;
+    align-items: center;
+    gap: 13px;
 }
 
 .action-link {
