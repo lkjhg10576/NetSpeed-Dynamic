@@ -1,7 +1,9 @@
 mod audio_spectrum;
 mod music_controller;
+mod notification;
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, Ordering};
 use tauri::{State, Manager, Emitter};
 use sysinfo::{Networks, System};
 use std::net::{SocketAddr, TcpStream};
@@ -9,9 +11,8 @@ use std::time::{Duration, Instant};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
-use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 
-// --- WinAPI Imports ---
+// WinAPI Imports
 use winapi::um::winuser::{
     keybd_event, VK_MENU, KEYEVENTF_KEYUP, SW_SHOWNORMAL,
 };
@@ -19,18 +20,7 @@ use winapi::shared::windef::RECT;
 use std::os::windows::ffi::OsStrExt;
 use winapi::um::shellapi::ShellExecuteW;
 
-static LAST_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(0);
-static IS_NOTIF_INIT: AtomicBool = AtomicBool::new(false);
-
-#[derive(serde::Serialize, Clone)]
-pub struct ToastData {
-    pub app_name: String,
-    pub title: String,
-    pub body: String,
-    pub aumid: String,
-}
-
-// --- 全功能灵动岛智能双模动画锁 ---
+// 全功能灵动岛智能双模动画锁
 static ANIMATION_ID: AtomicU32 = AtomicU32::new(0);
 
 // 将分散的坐标合并为一个结构体，并附带所有权 ID 防止误删
@@ -42,98 +32,6 @@ struct AnchorState {
     active_id: u32,
 }
 static ANIMATION_ANCHOR: Mutex<Option<AnchorState>> = Mutex::new(None);
-
-#[tauri::command]
-async fn fetch_latest_notification() -> Result<Option<ToastData>, String> {
-    use windows::UI::Notifications::Management::UserNotificationListener;
-    use windows::UI::Notifications::NotificationKinds;
-
-    let listener = match UserNotificationListener::Current() {
-        Ok(l) => l,
-        Err(_) => return Ok(None),
-    };
-
-    let _ = listener.RequestAccessAsync();
-
-    let notifications = match listener.GetNotificationsAsync(NotificationKinds::Toast) {
-        Ok(op) => match op.get() {
-            Ok(ns) => ns,
-            Err(_) => return Ok(None),
-        },
-        Err(_) => return Ok(None),
-    };
-
-    let mut latest_notif = None;
-    let mut max_id = 0u32;
-
-    for notif in notifications {
-        if let Ok(id) = notif.Id() {
-            if id > max_id {
-                max_id = id;
-                latest_notif = Some(notif);
-            }
-        }
-    }
-
-    if max_id == 0 { return Ok(None); }
-
-    let last_processed_id = LAST_NOTIFICATION_ID.load(Ordering::SeqCst);
-
-    if !IS_NOTIF_INIT.load(Ordering::SeqCst) {
-        LAST_NOTIFICATION_ID.store(max_id, Ordering::SeqCst);
-        IS_NOTIF_INIT.store(true, Ordering::SeqCst);
-        return Ok(None);
-    }
-
-    if max_id > last_processed_id {
-        LAST_NOTIFICATION_ID.store(max_id, Ordering::SeqCst);
-
-        if let Some(notif) = latest_notif {
-            let app_name = notif.AppInfo()
-                .and_then(|info| info.DisplayInfo())
-                .and_then(|dinfo| dinfo.DisplayName())
-                .map(|name| name.to_string())
-                .unwrap_or_else(|_| "系统通知".to_string());
-
-            let aumid = notif.AppInfo()
-                .and_then(|info| info.AppUserModelId())
-                .map(|id| id.to_string())
-                .unwrap_or_default();
-
-            if let Ok(toast_binding) = notif
-                .Notification()
-                .and_then(|n| n.Visual())
-                .and_then(|v| v.GetBinding(&windows::core::HSTRING::from("ToastGeneric")))
-            {
-                if let Ok(text_elements) = toast_binding.GetTextElements() {
-                    let mut text_list = Vec::new();
-                    for elem in text_elements {
-                        if let Ok(text) = elem.Text() {
-                            text_list.push(text.to_string());
-                        }
-                    }
-
-                    if !text_list.is_empty() {
-                        let title = text_list.first().cloned().unwrap_or_default();
-                        let body = if text_list.len() > 1 {
-                            text_list[1..].join(" ")
-                        } else {
-                            String::new()
-                        };
-
-                        if title.contains("微信") || title.contains("WeChat") || body.contains("微信") || body.contains("WeChat") {
-                            return Ok(None);
-                        }
-
-                        return Ok(Some(ToastData { app_name, title, body, aumid }));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(None)
-}
 
 #[tauri::command]
 fn open_app_by_aumid(aumid: String, app_name: String) {
@@ -421,7 +319,7 @@ pub fn run() {
             get_network_stats,
             is_widget_visible,
             get_network_latency,
-            fetch_latest_notification,
+            notification::fetch_latest_notification,
             get_hardware_stats,
             open_app_by_aumid,
             force_window_topmost,
