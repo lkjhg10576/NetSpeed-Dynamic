@@ -48,3 +48,5 @@ windows = { version = "0.58.0", features = [
     "Media_Control",
     "Storage_Streams",
 ] }
+cpal = "0.15"
+rustfft = "6.2"

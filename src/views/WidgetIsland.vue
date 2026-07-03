@@ -104,11 +104,8 @@
                 <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
                     <div v-if="displayMusic" class="audio-spectrum"
                         :class="{ 'is-playing': isPlaying, 'expanded': isMusicExpanded }" key="spectrum">
-                        <span class="bar"></span>
-                        <span class="bar"></span>
-                        <span class="bar"></span>
-                        <span class="bar"></span>
-                        <span class="bar"></span>
+                        <span class="bar" v-for="(val, index) in spectrumData" :key="index"
+                            :style="{ transform: `scaleY(${val})` }"></span>
                     </div>
 
                     <div v-else :class="['status-dot', networkStatus]" key="dot"></div>
@@ -217,6 +214,10 @@ const isMusicCtlEnabled = ref(localStorage.getItem('nsd_music_ctrl') === 'true')
 const isPlaying = ref(false);
 // 流光边框默认状态完全镜像音乐控制器（只要音乐控制器开着它就开，关了就一起关）
 const isGlowBorderEnabled = ref(localStorage.getItem('nsd_glow_border') === 'true');
+
+// 律动频谱
+const spectrumData = ref([0.35, 0.35, 0.35, 0.35, 0.35]);
+let spectrumTimer: number;
 
 // 封面url
 const coverUrl = ref('');
@@ -1142,6 +1143,21 @@ onMounted(async () => {
         currentHeight.value = h;
     });
 
+    // 新增：高频频谱拉取 (大约 20 帧/秒)
+    spectrumTimer = setInterval(async () => {
+        if (isPlaying.value && (displayMusic.value || isRotationEnabled.value)) {
+            try {
+                const data = await invoke<number[]>('get_audio_spectrum');
+                spectrumData.value = data;
+            } catch (err) {
+                // 忽略错误，防止刷屏
+            }
+        } else {
+            // 没在播放时，让柱子平滑回落到最低点
+            spectrumData.value = [0.35, 0.35, 0.35, 0.35, 0.35];
+        }
+    }, 50) as unknown as number;
+
     // 初始化时触发一次计算
     setTimeout(() => {
         calculateScroll();
@@ -1155,6 +1171,7 @@ onUnmounted(() => {
     stopRotation();
     clearInterval(musicTimer);
     clearInterval(notifyTimer);
+    clearInterval(spectrumTimer);
 });
 </script>
 
@@ -1647,56 +1664,13 @@ onUnmounted(() => {
 /* 暂停状态下的竖线（统一高度） */
 .audio-spectrum .bar {
     width: 2px;
-    height: 13px;
+    height: 20px;
     background-color: #b6e0ee;
     border-radius: 3px;
     transform-origin: center;
-    transform: scaleY(0.35);
-    transition: transform 0.4s ease;
+    /* 改用极速的 ease-out 过渡，让前端完美衔接后端的帧率 */
+    transition: transform 0.08s ease-out;
     will-change: transform;
-}
-
-/* 播放状态：挂载动画 */
-.audio-spectrum.is-playing .bar {
-    /* ease-in-out 让动画两头慢中间快，更像真实的音乐律动 */
-    animation: spectrum-bounce 0.3s ease-in-out infinite alternate;
-}
-
-/* 给每根竖线设置不同的速度和延迟，打破规律感 */
-.audio-spectrum.is-playing .bar:nth-child(1) {
-    animation-duration: 0.31s;
-    animation-delay: 0.0s;
-}
-
-.audio-spectrum.is-playing .bar:nth-child(2) {
-    animation-duration: 0.43s;
-    animation-delay: 0.2s;
-}
-
-.audio-spectrum.is-playing .bar:nth-child(3) {
-    animation-duration: 0.29s;
-    animation-delay: 0.4s;
-}
-
-.audio-spectrum.is-playing .bar:nth-child(4) {
-    animation-duration: 0.48s;
-    animation-delay: 0.1s;
-}
-
-.audio-spectrum.is-playing .bar:nth-child(5) {
-    animation-duration: 0.18s;
-    animation-delay: 0.0s;
-}
-
-/* 律动动画关键帧：在 35% 高度和 95% 高度之间来回回弹 */
-@keyframes spectrum-bounce {
-    0% {
-        transform: scaleY(0.35);
-    }
-
-    100% {
-        transform: scaleY(0.95);
-    }
 }
 
 /* ====================
@@ -1872,8 +1846,6 @@ onUnmounted(() => {
     white-space: nowrap;
     width: max-content;
     flex-shrink: 0;
-
-    /* 删除了 will-change，让浏览器在不滚动时释放 GPU 缓存 */
     backface-visibility: hidden;
     transform: translateZ(0);
     -webkit-font-smoothing: antialiased;

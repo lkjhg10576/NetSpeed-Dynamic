@@ -1,3 +1,5 @@
+mod audio_spectrum;
+
 use std::sync::Mutex;
 use tauri::{State, Manager, Emitter};
 use sysinfo::{Networks, System};
@@ -667,8 +669,11 @@ pub fn run() {
             set_window_bounds,
             set_target_player,
             start_island_animation,
+            audio_spectrum::get_audio_spectrum,
         ])
         .setup(|app| {
+            audio_spectrum::start_monitor();
+            
             let args: Vec<String> = std::env::args().collect();
             let is_autostart = args.iter().any(|arg| arg == "--autostart");
 
