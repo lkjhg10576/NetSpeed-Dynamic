@@ -202,8 +202,8 @@ const processToastQueue = async () => {
         sysToastType.value = nextToast.type;
         displaySysToast.value = true;
 
-        // 停留显示 1 秒
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        // 停留显示
+        await new Promise(resolve => setTimeout(resolve, 2000));
 
         displaySysToast.value = false;
         // 等待离开动画播完 (约 200ms) 再处理下一个
