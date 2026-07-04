@@ -18,8 +18,8 @@
 ![音乐控制器](./src/assets/screenshot2.png)
 ![灵动岛通知](./src/assets/screenshot4.jpg)
 ![系统资源监控](./src/assets/screenshot5.png)
-![音乐灵动岛展开](./src/assets/screenshot8.png)
 ![置于任务栏](./src/assets/screenshot7.png)
+![音乐灵动岛展开](./src/assets/screenshot8.png)
 
 ---
 
