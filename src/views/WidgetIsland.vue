@@ -50,19 +50,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                         </div>
 
@@ -127,7 +127,7 @@
                 </div>
 
                 <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                    <div v-if="displayMusic" class="audio-spectrum"
+                    <div v-if="showSpectrumIndicator" class="audio-spectrum"
                         :class="{ 'is-playing': isPlaying, 'expanded': isMusicExpanded }" key="spectrum">
                         <span class="bar" v-for="(val, index) in spectrumData" :key="index"
                             :style="{ transform: `scaleY(${val})` }"></span>
@@ -311,6 +311,11 @@ let rotationTimer: number | null = null;
 const displaySpeed = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 0 : (!isMusicCtlEnabled.value && !isHardwareMonEnabled.value)));
 const displayMusic = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value));
 const displayHardware = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 2 : isHardwareMonEnabled.value));
+
+// 专门用于控制右侧常驻指示灯的独立计算属性（完全不受消息通知打断）
+const showSpectrumIndicator = computed(() => {
+    return isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value;
+});
 
 const startRotation = () => {
     if (rotationTimer) clearInterval(rotationTimer);
@@ -1234,9 +1239,9 @@ onMounted(async () => {
         currentHeight.value = h;
     });
 
-    // 新增：高频频谱拉取 (大约 20 帧/秒)
+    // 高频频谱拉取 (大约 20 帧/秒)
     spectrumTimer = setInterval(async () => {
-        if (isPlaying.value && (displayMusic.value || isRotationEnabled.value)) {
+        if (isPlaying.value && showSpectrumIndicator.value) {
             try {
                 const data = await invoke<number[]>('get_audio_spectrum');
                 spectrumData.value = data;
@@ -1988,7 +1993,7 @@ onUnmounted(() => {
     transform: translateX(-8px);
 }
 
-/* 内部操作同款成功绿 */
+/* 灵动岛通知 */
 .toast-icon.app-icon {
     color: currentColor;
 }
