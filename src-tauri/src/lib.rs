@@ -12,14 +12,7 @@ use std::time::{Duration, Instant};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{TrayIconBuilder, TrayIconEvent, MouseButton};
-
-// WinAPI Imports
-use winapi::um::winuser::{
-    keybd_event, VK_MENU, KEYEVENTF_KEYUP, SW_SHOWNORMAL,
-};
 use winapi::shared::windef::RECT;
-use std::os::windows::ffi::OsStrExt;
-use winapi::um::shellapi::ShellExecuteW;
 
 // 全功能灵动岛智能双模动画锁
 static ANIMATION_ID: AtomicU32 = AtomicU32::new(0);
@@ -33,53 +26,6 @@ struct AnchorState {
     active_id: u32,
 }
 static ANIMATION_ANCHOR: Mutex<Option<AnchorState>> = Mutex::new(None);
-
-#[tauri::command]
-fn open_app_by_aumid(aumid: String, app_name: String) {
-    let app_lower = app_name.to_lowercase();
-    
-    unsafe {
-        keybd_event(VK_MENU as u8, 0, 0, 0);
-        keybd_event(VK_MENU as u8, 0, KEYEVENTF_KEYUP, 0);
-    }
-    
-    let execute_protocol = |protocol: &str| {
-        unsafe {
-            let op = std::ffi::OsStr::new("open").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-            let file = std::ffi::OsStr::new(protocol).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-            ShellExecuteW(
-                std::ptr::null_mut(),
-                op.as_ptr(),
-                file.as_ptr(),
-                std::ptr::null(),
-                std::ptr::null(),
-                SW_SHOWNORMAL,
-            );
-        }
-    };
-
-    if app_lower.contains("qq") {
-        execute_protocol("tencent://message/");
-    } else if app_lower.contains("微信") || app_lower.contains("wechat") {
-        execute_protocol("weixin://");
-    } else if app_lower.contains("钉钉") || app_lower.contains("dingtalk") {
-        execute_protocol("dingtalk://");
-    } else if !aumid.is_empty() {
-        unsafe {
-            let op = std::ffi::OsStr::new("open").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-            let file = std::ffi::OsStr::new("explorer.exe").encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-            let params = std::ffi::OsStr::new(&format!("shell:AppsFolder\\{}", aumid)).encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-            ShellExecuteW(
-                std::ptr::null_mut(),
-                op.as_ptr(),
-                file.as_ptr(),
-                params.as_ptr(),
-                std::ptr::null(),
-                SW_SHOWNORMAL,
-            );
-        }
-    }
-}
 
 #[tauri::command]
 fn force_window_topmost(app: tauri::AppHandle) {
@@ -322,12 +268,10 @@ pub fn run() {
             get_network_latency,
             notification::fetch_latest_notification,
             get_hardware_stats,
-            open_app_by_aumid,
             force_window_topmost,
             set_window_bounds,
             start_island_animation,
             audio_spectrum::get_audio_spectrum,
-            // 👇 下面这四个是指向新模块的指令
             music_controller::set_target_player,
             music_controller::fetch_netease_music_info,
             music_controller::control_system_media,

@@ -10,8 +10,7 @@
             <div class="island-core-content" :style="coreContentStyle">
                 <div class="inner-wrapper">
                     <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                        <div v-if="isMsgActive" class="msg-box" key="msg" @click="handleMsgClick"
-                            style="cursor: pointer;">
+                        <div v-if="isMsgActive" class="msg-box" key="msg">
                             <div class="msg-avatar">
                                 <img :src="currentMsgIcon" alt="消息图标" class="msg-avatar-img">
                             </div>
@@ -90,19 +89,19 @@
                             <div class="hw-item">
                                 <span class="hw-label">CPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(cpuUsage) >= 90 }">{{ cpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">GPU</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(gpuUsage) >= 90 }">{{ gpuUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                             <div class="hw-divider"></div>
                             <div class="hw-item">
                                 <span class="hw-label">RAM</span>
                                 <span class="hw-value" :class="{ 'high-usage': parseInt(memUsage) >= 90 }">{{ memUsage
-                                    }}</span>
+                                }}</span>
                             </div>
                         </div>
 
@@ -924,25 +923,6 @@ const onInnerLeave = (el: Element, done: () => void) => {
         }
     };
     requestAnimationFrame(animate);
-};
-
-// 👇把里面的 app_name 改回 appName
-const handleMsgClick = async () => {
-    if (msgAumid.value || msgTitle.value) {
-        try {
-            // 听 Tauri 的话，这里必须用驼峰命名的 appName
-            await invoke('open_app_by_aumid', {
-                aumid: msgAumid.value,
-                appName: msgTitle.value
-            });
-
-            isMsgActive.value = false;
-            animateIslandSize(260, 42);
-            if ((window as any).msgTimer) clearTimeout((window as any).msgTimer);
-        } catch (err) {
-            console.error('打开程序失败:', err);
-        }
-    }
 };
 
 // 灵动岛核心代码！（完美防漂移+防裁切+防打断抖动）
