@@ -1,0 +1,38 @@
+name: Node.js
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: windows-latest  # 因为是Windows应用
+
+    strategy:
+      matrix:
+        node-version: [20.x]  # 使用Node.js 20 LTS版本
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'  # 缓存npm依赖，加速构建
+
+    - name: Install dependencies
+      run: npm ci  # 使用ci而不是install，确保依赖版本与lock文件一致
+
+    - name: Type check
+      run: npx vue-tsc --noEmit  # TypeScript类型检查
+
+    - name: Build
+      run: npm run build  # 执行package.json中的build脚本
+
+    # 注意：当前项目没有测试脚本，如果以后添加了测试，可以取消下面的注释
+    # - name: Run tests
+    #   run: npm test
