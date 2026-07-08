@@ -194,6 +194,13 @@
                                 <img src="../assets/echomusic.ico" class="platform-icon" alt="icon">
                                 EchoMusic
                             </div>
+                            <div class="capsule-btn smtc-btn" :class="{ 'is-active': targetPlayer === 'smtc' }"
+                                @click="setTargetPlayer('smtc')">
+                                <svg class="platform-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="currentColor"/>
+                                </svg>
+                                SMTC
+                            </div>
                         </div>
                     </div>
                     <div class="set-item">
@@ -1970,12 +1977,27 @@ input:disabled+.slider {
 
 /* 音乐平台六宫格样式 */
 .player-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     width: 100%;
     padding: 4px;
     box-sizing: border-box;
+}
+
+/* SMTC按钮特殊样式 */
+.smtc-btn {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1));
+    border: 1px dashed rgba(59, 130, 246, 0.3);
+}
+
+.smtc-btn.is-active {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(16, 185, 129, 0.2));
+    border: 1px solid rgba(59, 130, 246, 0.5);
+}
+
+.smtc-btn:hover {
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(16, 185, 129, 0.15));
 }
 
 /* 改用 flex 布局，让图片和文字完美对齐 */
@@ -1988,6 +2010,8 @@ input:disabled+.slider {
     padding: 4px 0;
     font-size: 11px;
     white-space: nowrap;
+    flex: 0 0 calc((100% - 24px) / 7);
+    min-width: 60px;
 }
 
 /* 限制图标的尺寸，避免图片太大把盒子撑爆 */
