@@ -32,6 +32,33 @@ fn get_target_media_session() -> Option<GlobalSystemMediaTransportControlsSessio
         if guard.is_empty() { "netease".to_string() } else { guard.clone() }
     };
 
+    // SMTC模式：返回第一个活动的媒体会话
+    if target == "smtc" {
+        // 优先级1: 正在播放的会话
+        for session in sessions.iter() {
+            if let Ok(playback_info) = session.GetPlaybackInfo() {
+                if let Ok(status) = playback_info.PlaybackStatus() {
+                    if status == GlobalSystemMediaTransportControlsSessionPlaybackStatus::Playing {
+                        return Some(session.clone());
+                    }
+                }
+            }
+        }
+        
+        // 优先级2: 暂停但有媒体信息的会话
+        for session in sessions.iter() {
+            if let Ok(properties) = session.TryGetMediaPropertiesAsync().ok()?.get().ok() {
+                if let Ok(title) = properties.Title() {
+                    if !title.to_string().is_empty() {
+                        return Some(session.clone());
+                    }
+                }
+            }
+        }
+        
+        return None;
+    }
+
     for session in sessions {
         if let Ok(app_id) = session.SourceAppUserModelId() {
             let app_id_str = app_id.to_string().to_lowercase();
