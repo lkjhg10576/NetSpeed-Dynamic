@@ -265,6 +265,30 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
+                            <span class="set-item-title">自动隐藏</span>
+                            <span class="set-item-desc">鼠标离开灵动岛后自动收起</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="autoHideEnabled" @change="toggleAutoHide">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="set-item" v-if="autoHideEnabled">
+                        <div class="set-item-meta">
+                            <span class="set-item-title">隐藏延迟时间</span>
+                            <span class="set-item-desc">鼠标离开后延迟收起的时间 ({{ autoHideDelay / 1000 }}秒)</span>
+                        </div>
+                        <div class="delay-input-container">
+                            <button class="delay-btn" @click="autoHideDelay = Math.max(100, autoHideDelay - 500); updateAutoHideDelay()">-</button>
+                            <input type="number" v-model.number="autoHideDelay" @change="updateAutoHideDelay"
+                                class="delay-input" min="100" max="10000" step="500">
+                            <button class="delay-btn" @click="autoHideDelay = Math.min(10000, autoHideDelay + 500); updateAutoHideDelay()">+</button>
+                        </div>
+                    </div>
+
+                    <div class="set-item">
+                        <div class="set-item-meta">
                             <span class="set-item-title">灵动岛位置</span>
                             <span class="set-item-desc">{{ positionLocked ? '已锁定，解锁后可拖动调整位置' : (pinToTaskbar ? '已解锁，任务栏模式下仅可横向拖动' : '已解锁，可自由拖动调整位置') }}</span>
                         </div>
@@ -374,6 +398,10 @@ const msgModeEnabled = ref(localStorage.getItem('nsd_msg_mode') === 'true');
 const enableRotation = ref(localStorage.getItem('nsd_rotation_mode') === 'true');
 let wasMusicEnabledBeforeHardware = false;
 
+// 自动隐藏相关变量
+const autoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true');
+const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
+
 // 置于任务栏状态，默认从本地存储读取
 const pinToTaskbar = ref(localStorage.getItem('nsd_pin_taskbar') === 'true');
 // 切换开关时保存本地并发送信号给灵动岛
@@ -403,6 +431,21 @@ const toggleMsgMode = async () => {
 // 新增切换保存方法
 const toggleMsgNotify = () => {
     localStorage.setItem('nsd_msg_notify', String(enableMsgNotify.value));
+};
+
+// 切换自动隐藏设置
+const toggleAutoHide = async () => {
+    localStorage.setItem('nsd_auto_hide_enabled', String(autoHideEnabled.value));
+    localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
+    await emit('control-auto-hide', { enabled: autoHideEnabled.value, delay: autoHideDelay.value });
+};
+
+// 更新自动隐藏延迟时间
+const updateAutoHideDelay = async () => {
+    // 确保延迟时间在合理范围内（100ms到10秒）
+    autoHideDelay.value = Math.max(100, Math.min(10000, autoHideDelay.value));
+    localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
+    await emit('control-auto-hide', { enabled: autoHideEnabled.value, delay: autoHideDelay.value });
 };
 
 // 切换灵动岛设置
@@ -2055,5 +2098,62 @@ input:disabled+.slider {
 /* 当选中该平台时，让图标变亮完全不透明 */
 .capsule-btn.is-active .platform-icon {
     opacity: 1;
+}
+
+/* 自动隐藏延迟输入框样式 */
+.delay-input-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.delay-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--control-border);
+    background: var(--control-bg);
+    color: var(--text-body);
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.delay-btn:hover {
+    background: var(--btn-sec-bg);
+    border-color: var(--slider-checked-bg);
+}
+
+.delay-input {
+    width: 80px;
+    height: 32px;
+    border: 1px solid var(--control-border);
+    background: var(--control-bg);
+    color: var(--text-body);
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.delay-input:focus {
+    border-color: var(--slider-checked-bg);
+}
+
+/* 隐藏数字输入框的上下箭头 */
+.delay-input::-webkit-outer-spin-button,
+.delay-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.delay-input[type=number] {
+    -moz-appearance: textfield;
 }
 </style>

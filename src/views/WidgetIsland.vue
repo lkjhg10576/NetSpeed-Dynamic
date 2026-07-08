@@ -200,6 +200,12 @@ import { listen, emit } from '@tauri-apps/api/event';
 const isIslandVisible = ref(false);
 const isMenuOpen = ref(false);
 
+// 自动隐藏相关变量
+const isMouseOver = ref(false);
+let autoHideTimer: number | null = null;
+const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
+const isAutoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true'); // 自动隐藏功能开关
+
 // 记录当前是否显示上行网速（用于轮换）
 const isShowingUpload = ref(false);
 const isShowingCPU = ref(true);
@@ -1379,17 +1385,40 @@ const expandMusic = (e: MouseEvent) => {
 const handleMouseLeave = () => {
     // 清除鼠标边缘检测状态
     mouseNearEdge.value = null;
+    isMouseOver.value = false;
 
-    if (!isMusicExpanded.value && !isMusicExpanding.value) return;
+    // 如果没有开启自动隐藏功能，或者当前有消息/音乐展开等状态，直接收缩
+    if (!isAutoHideEnabled.value || isMsgActive.value || isMusicExpanded.value || isMusicExpanding.value || displaySysToast.value) {
+        if (isMusicExpanded.value || isMusicExpanding.value) {
+            collapseMusic();
+        }
+        return;
+    }
 
-    // 直接呼叫收缩。如果锁着，collapseMusic 会自动把它记到账上稍后执行
-    collapseMusic();
+    // 启动自动隐藏定时器
+    if (autoHideTimer) {
+        clearTimeout(autoHideTimer);
+        autoHideTimer = null;
+    }
+    autoHideTimer = window.setTimeout(() => {
+        if (!isMouseOver.value && isIslandVisible.value) {
+            // 延迟后隐藏灵动岛
+            isIslandVisible.value = false;
+        }
+    }, autoHideDelay.value);
 };
 
 // 鼠标重新移入灵动岛时：立刻打断收缩企图
 const handleMouseEnter = () => {
     // 如果之前移出留下了收缩案底，但动画还没播完鼠标又回来了，直接取消这个案底
     isPendingCollapse = false;
+    isMouseOver.value = true;
+
+    // 取消自动隐藏定时器
+    if (autoHideTimer) {
+        clearTimeout(autoHideTimer);
+        autoHideTimer = null;
+    }
 };
 
 watch(displayMusic, (newVal: boolean) => {
@@ -1500,8 +1529,16 @@ onMounted(async () => {
     await listen<{ enabled: boolean }>('control-msg-mode', async (event) => {
         isMsgModeEnabled.value = event.payload.enabled;
         if (isMsgModeEnabled.value && !isMsgActive.value) {
-            // 如果开启了消息模式，并且当前没有消息，立刻隐藏
-            isIslandVisible.value = false;
+            // 如果开启了消息模式，并且当前没有消息，延迟隐藏
+            if (autoHideTimer) {
+                clearTimeout(autoHideTimer);
+                autoHideTimer = null;
+            }
+            autoHideTimer = window.setTimeout(() => {
+                if (!isMouseOver.value && isIslandVisible.value) {
+                    isIslandVisible.value = false;
+                }
+            }, autoHideDelay.value);
         } else if (!isMsgModeEnabled.value) {
             // 如果关闭了消息模式，立刻恢复显示
             await getCurrentWindow().show();
@@ -1521,6 +1558,14 @@ onMounted(async () => {
             stopRotation();
             currentRotIndex.value = 0; // 关闭时重置回网速
         }
+    });
+
+    // 监听自动隐藏设置
+    await listen<{ enabled: boolean, delay: number }>('control-auto-hide', (event) => {
+        isAutoHideEnabled.value = event.payload.enabled;
+        autoHideDelay.value = event.payload.delay;
+        localStorage.setItem('nsd_auto_hide_enabled', String(isAutoHideEnabled.value));
+        localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
     });
 
     // 启动时如果开了轮换，就跑起来
@@ -1661,9 +1706,16 @@ onMounted(async () => {
                     const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
                     animateIslandSize(targetWidth, h);
                     if (isMsgModeEnabled.value) {
-                        setTimeout(() => {
-                            if (!isMsgActive.value) isIslandVisible.value = false;
-                        }, 600);
+                        // 延迟隐藏，考虑自动隐藏设置
+                        if (autoHideTimer) {
+                            clearTimeout(autoHideTimer);
+                            autoHideTimer = null;
+                        }
+                        autoHideTimer = window.setTimeout(() => {
+                            if (!isMouseOver.value && isIslandVisible.value) {
+                                isIslandVisible.value = false;
+                            }
+                        }, autoHideDelay.value);
                     }
                 }, 5000);
             }
