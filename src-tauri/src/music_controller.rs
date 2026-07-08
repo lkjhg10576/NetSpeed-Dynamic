@@ -49,7 +49,7 @@ fn get_target_media_session() -> Option<GlobalSystemMediaTransportControlsSessio
         // 注意：这里需要重新获取sessions，因为上面的for循环已经消耗了sessions
         let sessions = manager.GetSessions().ok()?;
         for session in sessions {
-            if let Ok(properties) = session.TryGetMediaPropertiesAsync().ok()?.get().ok() {
+            if let Some(properties) = session.TryGetMediaPropertiesAsync().ok()?.get().ok() {
                 if let Ok(title) = properties.Title() {
                     if !title.to_string().is_empty() {
                         return Some(session);
