@@ -258,8 +258,10 @@ watch(displaySysToast, (newVal) => {
         // 通知消失时，恢复到当前状态该有的尺寸
         // （前提是没有被应用消息或音乐面板霸占）
         if (!isMsgActive.value && !isMusicExpanded.value && !isMusicExpanding.value) {
-            const { w, h } = getBaseSize();
-            animateIslandSize(w, h);
+            const { h } = getBaseSize();
+            const savedWidth = restoreIslandWidth();
+            const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+            animateIslandSize(targetWidth, h);
         }
     }
 });
@@ -411,8 +413,10 @@ const getBaseSize = () => {
 watch([displaySpeed, displayMusic, displayHardware], () => {
     // 只有在没有被临时弹窗（消息、音乐展开）霸占时，才执行基础大小切换
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
-        const { w, h } = getBaseSize();
-        animateIslandSize(w, h);
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
     }
 });
 
@@ -1331,8 +1335,11 @@ const collapseMusic = () => {
         musicExpandAnimTimer = null;
     }
 
-    const { w, h } = getBaseSize();
-    animateIslandSize(w, h);
+    // 折叠时恢复用户自定义的宽度，而不是使用默认宽度
+    const { h } = getBaseSize();
+    const savedWidth = restoreIslandWidth();
+    const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+    animateIslandSize(targetWidth, h);
 };
 
 // 音乐控制器点击展开方法
@@ -1649,8 +1656,10 @@ onMounted(async () => {
                 if ((window as any).msgTimer) clearTimeout((window as any).msgTimer);
                 (window as any).msgTimer = setTimeout(() => {
                     isMsgActive.value = false;
-                    const { w, h } = getBaseSize();
-                    animateIslandSize(w, h);
+                    const { h } = getBaseSize();
+                    const savedWidth = restoreIslandWidth();
+                    const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+                    animateIslandSize(targetWidth, h);
                     if (isMsgModeEnabled.value) {
                         setTimeout(() => {
                             if (!isMsgActive.value) isIslandVisible.value = false;
