@@ -23,7 +23,9 @@ jobs:
 
     - name: Build
       run: cargo build --verbose
+      working-directory: src-tauri  # 切换到src-tauri目录，Cargo.toml在此处
 
     - name: Run tests
       run: cargo test --verbose
+      working-directory: src-tauri  # 切换到src-tauri目录
       continue-on-error: true  # 允许测试失败，因为可能没有测试
