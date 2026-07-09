@@ -14,10 +14,24 @@
         <canvas ref="canvasRef" class="stats-canvas"></canvas>
         <!-- Tooltip -->
         <div v-if="tooltip.visible" class="stats-tooltip" :style="{ left: tooltip.x + 'px', top: tooltip.y + 'px' }">
-            <div class="tooltip-title">{{ tooltip.title }}</div>
-            <div class="tooltip-row"><span class="tooltip-dot" :style="{ background: upColor }"></span>上传: {{ tooltip.up }} MB</div>
-            <div class="tooltip-row"><span class="tooltip-dot" :style="{ background: downColor }"></span>下载: {{ tooltip.down }} MB</div>
+            <div class="tooltip-header">{{ tooltip.title }}</div>
+            <div class="tooltip-divider"></div>
+            <div class="tooltip-body">
+                <div class="tooltip-row">
+                    <span class="tooltip-dot" :style="{ background: upColor }"></span>
+                    <span class="tooltip-label">上传</span>
+                    <span class="tooltip-value">{{ tooltip.up }} MB</span>
+                </div>
+                <div class="tooltip-row">
+                    <span class="tooltip-dot" :style="{ background: downColor }"></span>
+                    <span class="tooltip-label">下载</span>
+                    <span class="tooltip-value">{{ tooltip.down }} MB</span>
+                </div>
+            </div>
+            <div class="tooltip-arrow"></div>
         </div>
+        <!-- 折线图轴指示线 -->
+        <div v-if="tooltip.visible && chartType === 'line'" class="axis-pointer-line" :style="{ left: tooltip.lineX + 'px' }"></div>
     </div>
 </template>
 
@@ -38,6 +52,7 @@ const tooltip = reactive({
     visible: false,
     x: 0,
     y: 0,
+    lineX: 0,
     title: '',
     up: '0',
     down: '0',
@@ -233,14 +248,30 @@ const handleMouseMove = (e: MouseEvent) => {
     const rect = canvasRef.value.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+    const padding = { top: 4, bottom: 28, left: 10, right: 10 };
+    const tooltipW = 130;
+    const tooltipH = 80;
+
+    // 辅助函数：修正 tooltip 位置防止超出边界
+    const clampTooltip = (tx: number, ty: number) => {
+        let clampedX = tx;
+        let clampedY = ty;
+        if (clampedX < 0) clampedX = 0;
+        if (clampedX + tooltipW > rect.width) clampedX = rect.width - tooltipW;
+        if (clampedY < 0) clampedY = 4;
+        return { x: clampedX, y: clampedY };
+    };
 
     if (props.chartType === 'bar') {
         let found = false;
         for (const bar of barRects) {
             if (x >= bar.x && x <= bar.x + bar.w && y >= bar.y && y <= bar.y + bar.h) {
                 tooltip.visible = true;
-                tooltip.x = e.clientX - rect.left + 12;
-                tooltip.y = e.clientY - rect.top - 10;
+                const centerX = bar.x + bar.w / 2;
+                const pos = clampTooltip(centerX - tooltipW / 2, bar.y - tooltipH - 6);
+                tooltip.x = pos.x;
+                tooltip.y = pos.y;
+                tooltip.lineX = centerX;
                 tooltip.title = props.days[bar.index];
                 tooltip.up = props.upData[bar.index].toFixed(2);
                 tooltip.down = props.downData[bar.index].toFixed(2);
@@ -252,7 +283,6 @@ const handleMouseMove = (e: MouseEvent) => {
         if (!found) tooltip.visible = false;
     } else {
         // 折线图：检测最近的数据点
-        const padding = { top: 4, bottom: 28, left: 10, right: 10 };
         const chartW = rect.width - padding.left - padding.right;
         const categoryW = chartW / props.days.length;
         let nearest = -1;
@@ -266,9 +296,17 @@ const handleMouseMove = (e: MouseEvent) => {
             }
         }
         if (nearest >= 0) {
+            const centerX = padding.left + categoryW * nearest + categoryW / 2;
+            const maxVal = Math.max(...props.upData, ...props.downData, 1);
+            const chartH = rect.height - padding.top - padding.bottom;
+            const maxData = Math.max(props.upData[nearest], props.downData[nearest]);
+            const topY = padding.top + chartH - (maxData / maxVal) * chartH;
+
             tooltip.visible = true;
-            tooltip.x = e.clientX - rect.left + 12;
-            tooltip.y = e.clientY - rect.top - 10;
+            const pos = clampTooltip(centerX - tooltipW / 2, topY - tooltipH - 6);
+            tooltip.x = pos.x;
+            tooltip.y = pos.y;
+            tooltip.lineX = centerX;
             tooltip.title = props.days[nearest];
             tooltip.up = props.upData[nearest].toFixed(2);
             tooltip.down = props.downData[nearest].toFixed(2);
@@ -353,34 +391,110 @@ defineExpose({ resize });
 
 .stats-tooltip {
     position: absolute;
-    background: var(--card-bg, #fff);
-    border: 1px solid var(--card-border, #e2e8f0);
-    border-radius: 8px;
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    padding: 0;
     font-size: 12px;
     pointer-events: none;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
     z-index: 10;
     white-space: nowrap;
+    min-width: 120px;
 }
 
-.tooltip-title {
+:global(.dark-theme) .stats-tooltip {
+    background: rgba(41, 43, 46, 0.96);
+    border-color: #474c53;
+}
+
+.tooltip-header {
     font-weight: 600;
-    margin-bottom: 4px;
-    color: var(--card-h3-color, #334155);
+    font-size: 13px;
+    padding: 6px 10px 4px;
+    color: #1e293b;
+    border-bottom: none;
+}
+
+:global(.dark-theme) .tooltip-header {
+    color: #f1f5f9;
+}
+
+.tooltip-divider {
+    height: 1px;
+    background: #e2e8f0;
+    margin: 0;
+}
+
+:global(.dark-theme) .tooltip-divider {
+    background: #474c53;
+}
+
+.tooltip-body {
+    padding: 4px 10px 6px;
 }
 
 .tooltip-row {
     display: flex;
     align-items: center;
     gap: 6px;
-    color: var(--speed-label, #64748b);
+    padding: 2px 0;
+    color: #64748b;
+}
+
+:global(.dark-theme) .tooltip-row {
+    color: #94a3b8;
 }
 
 .tooltip-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
     display: inline-block;
+    flex-shrink: 0;
+}
+
+.tooltip-label {
+    flex: 1;
+}
+
+.tooltip-value {
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #1e293b;
+}
+
+:global(.dark-theme) .tooltip-value {
+    color: #f1f5f9;
+}
+
+.tooltip-arrow {
+    position: absolute;
+    bottom: -5px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 5px solid #e2e8f0;
+}
+
+:global(.dark-theme) .tooltip-arrow {
+    border-top-color: #474c53;
+}
+
+.axis-pointer-line {
+    position: absolute;
+    top: 28px;
+    bottom: 28px;
+    width: 1px;
+    background: rgba(0, 0, 0, 0.1);
+    pointer-events: none;
+    z-index: 5;
+}
+
+:global(.dark-theme) .axis-pointer-line {
+    background: rgba(255, 255, 255, 0.1);
 }
 </style>
