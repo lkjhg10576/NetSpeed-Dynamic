@@ -1678,6 +1678,15 @@ onMounted(async () => {
     currentWidth.value = savedWidth !== null ? savedWidth : w;
     currentHeight.value = h;
 
+    // 立即设置窗口大小，确保宽度恢复生效
+    try {
+        const appWindow = getCurrentWindow();
+        const scaleFactor = window.devicePixelRatio;
+        await appWindow.setSize(new PhysicalSize(Math.ceil(currentWidth.value * scaleFactor), Math.ceil(currentHeight.value * scaleFactor)));
+    } catch (error) {
+        console.error('设置初始窗口大小失败:', error);
+    }
+
     // 根据本地记录决定启动时出现在哪
     if (isPositionLocked.value) {
         // 已锁定位置：尝试恢复上次保存的坐标
