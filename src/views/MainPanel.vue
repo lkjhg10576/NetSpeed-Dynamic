@@ -64,7 +64,9 @@
                             </div>
                         </div>
                     </div>
-                    <div ref="chartRef" class="mini-chart"></div>
+                    <div class="mini-chart">
+                        <SpeedChart ref="speedChartRef" :data="chartDataQueue" />
+                    </div>
                 </div>
 
                 <div class="card settings-card" v-if="rightPanel === 'settings'">
@@ -124,7 +126,7 @@
                     <div class="card stats-card">
                         <div class="card-header-row">
                             <h3>数据统计</h3>
-                            <select v-model="statChartType" class="theme-select" @change="updateStatsChart">
+                            <select v-model="statChartType" class="theme-select">
                                 <option value="bar">柱状图</option>
                                 <option value="line">折线图</option>
                             </select>
@@ -148,7 +150,15 @@
                             </div>
                         </div>
 
-                        <div ref="statsChartRef" class="stats-chart-container"></div>
+                        <div class="stats-chart-container">
+                            <StatsChart
+                                ref="statsChartRef"
+                                :days="statsDays"
+                                :up-data="statsUpData"
+                                :down-data="statsDownData"
+                                :chart-type="statChartType"
+                            />
+                        </div>
                     </div>
                 </template>
             </template>
@@ -378,7 +388,8 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { emit, listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
-import * as echarts from 'echarts';
+import SpeedChart from '../components/SpeedChart.vue';
+import StatsChart from '../components/StatsChart.vue';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -513,30 +524,25 @@ const toggleRotation = async () => {
     }
 };
 
-// 切换灵动岛设置时，更新图表
+// 切换灵动岛设置时，重绘图表
 watch(isDynamicSet, async (newVal) => {
     if (!newVal) {
-        // 销毁所有旧实例，防止内存泄漏或节点挂载错位
-        chartInstance?.dispose();
-        statsChartInstance?.dispose();
-
         // 等待 Vue 将 DOM 节点重新渲染出来
         await nextTick();
 
-        // 重新初始化网速波形图
-        initChart();
+        // 重绘网速走势图
+        speedChartRef.value?.resize();
 
-        // 如果用户切走前打开的是数据统计面板，则同步重新初始化统计图表
+        // 如果用户切走前打开的是数据统计面板，则重绘统计图表
         if (rightPanel.value === 'stats') {
-            initStatsChart();
+            statsChartRef.value?.resize();
         }
     }
 });
 
 const rightPanel = ref<'settings' | 'stats'>('settings');
 const statChartType = ref<'bar' | 'line'>('bar');
-const statsChartRef = ref<HTMLElement | null>(null);
-let statsChartInstance: any = null;
+const statsChartRef = ref<InstanceType<typeof StatsChart> | null>(null);
 
 const trafficData = ref<Record<string, { up: number; down: number }>>({});
 let saveThrottleCounter = 0;
@@ -566,6 +572,41 @@ const monthTraffic = computed(() => {
         .reduce((acc, [, data]) => acc + data.up + data.down, 0);
 });
 
+// 统计图表数据
+const statsDays = computed(() => {
+    const days: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        days.push(getLocalYYYYMMDD(d).slice(5));
+    }
+    return days;
+});
+
+const statsUpData = computed(() => {
+    const data: number[] = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = getLocalYYYYMMDD(d);
+        const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
+        data.push(Number((dayData.up / (1024 * 1024)).toFixed(2)));
+    }
+    return data;
+});
+
+const statsDownData = computed(() => {
+    const data: number[] = [];
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dateStr = getLocalYYYYMMDD(d);
+        const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
+        data.push(Number((dayData.down / (1024 * 1024)).toFixed(2)));
+    }
+    return data;
+});
+
 // 获取本地日期格式为 YYYY-MM-DD
 const getLocalYYYYMMDD = (date: Date) => {
     const y = date.getFullYear();
@@ -591,81 +632,9 @@ const toggleRightPanel = async () => {
     localStorage.setItem('nsd_traffic_stats', JSON.stringify(trafficData.value));
     saveThrottleCounter = 0;
 
-    if (rightPanel.value === 'stats') {
-        await nextTick();
-        initStatsChart();
-    } else {
-        statsChartInstance?.dispose();
-        statsChartInstance = null;
-    }
-
     // 侧边栏布局变化会挤压左侧卡片，强制让实时走势图重新计算高宽
     await nextTick();
-    chartInstance?.resize();
-};
-
-const initStatsChart = () => {
-    if (!statsChartRef.value || !echarts) return;
-    statsChartInstance = echarts.init(statsChartRef.value);
-    updateStatsChart();
-};
-
-// 更新数据统计图表
-const updateStatsChart = () => {
-    if (!statsChartInstance) return;
-    const isDark = document.documentElement.classList.contains('dark-theme');
-    const textColor = isDark ? '#94a3b8' : '#64748b';
-    const splitLineColor = isDark ? '#383c41' : '#f1f5f9';
-
-    const days: string[] = [];
-    const upData: number[] = [];
-    const downData: number[] = [];
-
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = getLocalYYYYMMDD(d);
-        days.push(dateStr.slice(5));
-
-        const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
-        upData.push(Number((dayData.up / (1024 * 1024)).toFixed(2)));
-        downData.push(Number((dayData.down / (1024 * 1024)).toFixed(2)));
-    }
-
-    statsChartInstance.setOption({
-        tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-        legend: { data: ['上传 (MB)', '下载 (MB)'], textStyle: { color: textColor }, top: 0 },
-        grid: { left: '2%', right: '2%', bottom: '0%', containLabel: true },
-        xAxis: {
-            type: 'category',
-            data: days,
-            axisLabel: { color: textColor },
-            axisLine: { lineStyle: { color: splitLineColor } }
-        },
-        yAxis: {
-            type: 'value',
-            splitLine: { lineStyle: { color: splitLineColor, type: 'dashed' } },
-            axisLabel: { color: textColor }
-        },
-        series: [
-            {
-                name: '上传 (MB)',
-                type: statChartType.value,
-                smooth: true,
-                data: upData,
-                itemStyle: { color: getChartColors().line },
-                barMaxWidth: 15
-            },
-            {
-                name: '下载 (MB)',
-                type: statChartType.value,
-                smooth: true,
-                data: downData,
-                itemStyle: { color: isDark ? '#34d399' : '#10b981' },
-                barMaxWidth: 15
-            }
-        ]
-    });
+    speedChartRef.value?.resize();
 };
 
 const toggleAutoStart = async () => {
@@ -717,55 +686,13 @@ let lastTx = 0;
 let speedTimer: number;
 let systemThemeMedia: MediaQueryList;
 
-const chartRef = ref<HTMLElement | null>(null);
-let chartInstance: any = null;
+const speedChartRef = ref<InstanceType<typeof SpeedChart> | null>(null);
 const chartDataQueue: number[] = Array(15).fill(0);
 
 const formatSpeed = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B/s';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB/s';
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB/s';
-};
-
-const getChartColors = () => {
-    const isDark = document.documentElement.classList.contains('dark-theme');
-    return {
-        line: isDark ? '#60a5fa' : '#3b82f6',
-        areaStart: isDark ? 'rgba(96, 165, 250, 0.4)' : 'rgba(59, 130, 246, 0.4)',
-        areaEnd: isDark ? 'rgba(96, 165, 250, 0.0)' : 'rgba(59, 130, 246, 0.0)'
-    };
-};
-
-const initChart = () => {
-    if (!chartRef.value || !echarts) return;
-    chartInstance = echarts.init(chartRef.value);
-    updateChartOption();
-};
-
-// 更新图表选项
-const updateChartOption = () => {
-    if (!chartInstance) return;
-    const colors = getChartColors();
-    chartInstance.setOption({
-        grid: { top: 5, bottom: 5, left: 0, right: 0 },
-        xAxis: { type: 'category', boundaryGap: false, show: false },
-        yAxis: { type: 'value', show: false, min: 0 },
-        series: [
-            {
-                data: chartDataQueue,
-                type: 'line',
-                smooth: true,
-                symbol: 'none',
-                lineStyle: { color: colors.line, width: 2 },
-                areaStyle: {
-                    color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-                        { offset: 0, color: colors.areaStart },
-                        { offset: 1, color: colors.areaEnd }
-                    ]),
-                },
-            },
-        ],
-    });
 };
 
 // 获取并更新网络流量统计
@@ -781,11 +708,9 @@ const fetchSpeedStats = async () => {
             const speedMB = rxDiff / (1024 * 1024);
 
             // 核心修复：直接压入完整的 speedMB 浮点数，不做保留两位的截断。
-            // 从而使 ECharts 面对极小流量（如 B/s, KB/s 级别）也能捕捉到微小的轴缩放波动。
+            // 从而使图表面对极小流量（如 B/s, KB/s 级别）也能捕捉到微小的轴缩放波动。
             chartDataQueue.push(speedMB);
             if (chartDataQueue.length > 15) chartDataQueue.shift();
-
-            chartInstance?.setOption({ series: [{ data: chartDataQueue }] });
 
             if (rxDiff > 0 || txDiff > 0) {
                 const todayStr = getLocalYYYYMMDD(new Date());
@@ -942,7 +867,6 @@ const applyTheme = () => {
             root.classList.remove('dark-theme');
         }
     }
-    updateChartOption();
 };
 
 const handleThemeChange = () => {
@@ -1014,12 +938,11 @@ onMounted(async () => {
     systemThemeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     systemThemeMedia.addEventListener('change', handleSystemThemeUpdate);
 
-    initChart();
     fetchSpeedStats();
     speedTimer = setInterval(fetchSpeedStats, 1000) as unknown as number;
     window.addEventListener('resize', () => {
-        chartInstance?.resize();
-        statsChartInstance?.resize();
+        speedChartRef.value?.resize();
+        statsChartRef.value?.resize();
     });
 
     try {
@@ -1072,8 +995,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
     clearInterval(speedTimer);
-    chartInstance?.dispose();
-    statsChartInstance?.dispose();
     systemThemeMedia?.removeEventListener('change', handleSystemThemeUpdate);
     localStorage.setItem('nsd_traffic_stats', JSON.stringify(trafficData.value));
 });
