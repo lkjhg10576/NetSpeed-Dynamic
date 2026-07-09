@@ -206,6 +206,11 @@ let autoHideTimer: number | null = null;
 const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
 const isAutoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true'); // 自动隐藏功能开关
 
+// 自动折叠相关变量（灵动岛展开后，鼠标离开自动折叠回小岛状态）
+let autoCollapseTimer: number | null = null;
+const autoCollapseDelay = ref(Number(localStorage.getItem('nsd_auto_collapse_delay') || '2000')); // 默认2秒
+const isAutoCollapseEnabled = ref(localStorage.getItem('nsd_auto_collapse_enabled') === 'true'); // 自动折叠功能开关
+
 // 记录当前是否显示上行网速（用于轮换）
 const isShowingUpload = ref(false);
 const isShowingCPU = ref(true);
@@ -242,6 +247,12 @@ const processToastQueue = async () => {
         sysToastText.value = nextToast.text;
         sysToastType.value = nextToast.type;
         displaySysToast.value = true;
+        
+        // 自动恢复显示：当有系统通知时，如果灵动岛被隐藏，则自动恢复显示
+        if (!isIslandVisible.value) {
+            getCurrentWindow().show();
+            isIslandVisible.value = true;
+        }
 
         // 停留显示
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -546,6 +557,12 @@ const syncMusicStatus = async () => {
             }
 
             isPlaying.value = playing;
+            
+            // 自动恢复显示：当音乐开始播放时，如果灵动岛被隐藏，则自动恢复显示
+            if (playing && !isIslandVisible.value) {
+                getCurrentWindow().show();
+                isIslandVisible.value = true;
+            }
         } else {
             // 没检测到播放时，清空状态
             currentTrackInfo.value = `未在播放歌曲 - ${getPlayerName()}`;
@@ -1381,17 +1398,36 @@ const expandMusic = (e: MouseEvent) => {
     }, 120);
 };
 
-// 鼠标离开灵动岛时：立刻收缩！
+// 鼠标离开灵动岛时：自动折叠或自动隐藏
 const handleMouseLeave = () => {
     // 清除鼠标边缘检测状态
     mouseNearEdge.value = null;
     isMouseOver.value = false;
 
-    // 如果没有开启自动隐藏功能，或者当前有消息/音乐展开等状态，直接收缩
-    if (!isAutoHideEnabled.value || isMsgActive.value || isMusicExpanded.value || isMusicExpanding.value || displaySysToast.value) {
-        if (isMusicExpanded.value || isMusicExpanding.value) {
-            collapseMusic();
+    // 1. 自动折叠逻辑：当灵动岛展开时，鼠标离开后延迟折叠回小岛状态
+    if (isAutoCollapseEnabled.value && (isMusicExpanded.value || isMusicExpanding.value)) {
+        // 启动自动折叠定时器
+        if (autoCollapseTimer) {
+            clearTimeout(autoCollapseTimer);
+            autoCollapseTimer = null;
         }
+        autoCollapseTimer = window.setTimeout(() => {
+            if (!isMouseOver.value && (isMusicExpanded.value || isMusicExpanding.value)) {
+                collapseMusic();
+            }
+        }, autoCollapseDelay.value);
+    }
+
+    // 2. 自动隐藏逻辑：当没有活动时，延迟隐藏灵动岛
+    if (!isAutoHideEnabled.value) {
+        return;
+    }
+
+    // 检查是否有活动状态（消息、音乐展开、系统通知）
+    const hasActivity = isMsgActive.value || isMusicExpanded.value || isMusicExpanding.value || displaySysToast.value;
+    
+    // 如果有活动，不触发自动隐藏
+    if (hasActivity) {
         return;
     }
 
@@ -1418,6 +1454,12 @@ const handleMouseEnter = () => {
     if (autoHideTimer) {
         clearTimeout(autoHideTimer);
         autoHideTimer = null;
+    }
+
+    // 取消自动折叠定时器
+    if (autoCollapseTimer) {
+        clearTimeout(autoCollapseTimer);
+        autoCollapseTimer = null;
     }
 };
 
@@ -1465,14 +1507,28 @@ onMounted(async () => {
         isMusicCtlEnabled.value = isEnabled;
 
         if (isEnabled) {
-            // 判断是不是“首次”（本地有没有存过流光边框的数据）
+            // 判断是不是"首次"（本地有没有存过流光边框的数据）
             if (localStorage.getItem('nsd_glow_border') === null) {
                 isGlowBorderEnabled.value = true; // 自动开启流光边框
-                localStorage.setItem('nsd_glow_border', 'true'); // 存入记忆，以后就不算“首次”了
+                localStorage.setItem('nsd_glow_border', 'true'); // 存入记忆，以后就不算"首次"了
             }
 
             showInfo.value = false;
             musicBoxKey.value++;
+            
+            // 音乐控制器模式特殊处理：当音乐控制器模式打开且没有音乐播放时，触发自动隐藏
+            if (isAutoHideEnabled.value && !isPlaying.value && !isIslandVisible.value) {
+                // 启动自动隐藏定时器
+                if (autoHideTimer) {
+                    clearTimeout(autoHideTimer);
+                    autoHideTimer = null;
+                }
+                autoHideTimer = window.setTimeout(() => {
+                    if (!isMouseOver.value && isIslandVisible.value) {
+                        isIslandVisible.value = false;
+                    }
+                }, autoHideDelay.value);
+            }
         }
     });
 
@@ -1566,6 +1622,14 @@ onMounted(async () => {
         autoHideDelay.value = event.payload.delay;
         localStorage.setItem('nsd_auto_hide_enabled', String(isAutoHideEnabled.value));
         localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
+    });
+
+    // 监听自动折叠设置
+    await listen<{ enabled: boolean, delay: number }>('control-auto-collapse', (event) => {
+        isAutoCollapseEnabled.value = event.payload.enabled;
+        autoCollapseDelay.value = event.payload.delay;
+        localStorage.setItem('nsd_auto_collapse_enabled', String(isAutoCollapseEnabled.value));
+        localStorage.setItem('nsd_auto_collapse_delay', String(autoCollapseDelay.value));
     });
 
     // 启动时如果开了轮换，就跑起来
@@ -1689,6 +1753,11 @@ onMounted(async () => {
 
                 if (!isMsgActive.value) {
                     isMsgActive.value = true;
+                    // 自动恢复显示：当有消息活动时，如果灵动岛被隐藏，则自动恢复显示
+                    if (!isIslandVisible.value) {
+                        getCurrentWindow().show();
+                        isIslandVisible.value = true;
+                    }
                     if (isMsgModeEnabled.value && !isIslandVisible.value) {
                         getCurrentWindow().show();
                         isIslandVisible.value = true;

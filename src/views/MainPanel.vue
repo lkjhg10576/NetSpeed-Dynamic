@@ -289,6 +289,30 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
+                            <span class="set-item-title">自动折叠</span>
+                            <span class="set-item-desc">{{ autoCollapseEnabled ? '展开后鼠标离开自动折叠回小岛状态' : '关闭后需手动折叠展开的灵动岛' }}</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="autoCollapseEnabled" @change="toggleAutoCollapse">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="set-item" v-if="autoCollapseEnabled">
+                        <div class="set-item-meta">
+                            <span class="set-item-title">折叠延迟时间</span>
+                            <span class="set-item-desc">鼠标离开后延迟折叠的时间 ({{ autoCollapseDelay / 1000 }}秒)</span>
+                        </div>
+                        <div class="delay-input-container">
+                            <button class="delay-btn" @click="autoCollapseDelay = Math.max(100, autoCollapseDelay - 500); updateAutoCollapseDelay()">-</button>
+                            <input type="number" v-model.number="autoCollapseDelay" @change="updateAutoCollapseDelay"
+                                class="delay-input" min="100" max="10000" step="500">
+                            <button class="delay-btn" @click="autoCollapseDelay = Math.min(10000, autoCollapseDelay + 500); updateAutoCollapseDelay()">+</button>
+                        </div>
+                    </div>
+
+                    <div class="set-item">
+                        <div class="set-item-meta">
                             <span class="set-item-title">灵动岛位置</span>
                             <span class="set-item-desc">{{ positionLocked ? '已锁定，解锁后可拖动调整位置' : (pinToTaskbar ? '已解锁，任务栏模式下仅可横向拖动' : '已解锁，可自由拖动调整位置') }}</span>
                         </div>
@@ -402,6 +426,10 @@ let wasMusicEnabledBeforeHardware = false;
 const autoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true');
 const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
 
+// 自动折叠相关变量（灵动岛展开后，鼠标离开自动折叠回小岛状态）
+const autoCollapseEnabled = ref(localStorage.getItem('nsd_auto_collapse_enabled') === 'true');
+const autoCollapseDelay = ref(Number(localStorage.getItem('nsd_auto_collapse_delay') || '2000')); // 默认2秒
+
 // 置于任务栏状态，默认从本地存储读取
 const pinToTaskbar = ref(localStorage.getItem('nsd_pin_taskbar') === 'true');
 // 切换开关时保存本地并发送信号给灵动岛
@@ -446,6 +474,21 @@ const updateAutoHideDelay = async () => {
     autoHideDelay.value = Math.max(100, Math.min(10000, autoHideDelay.value));
     localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
     await emit('control-auto-hide', { enabled: autoHideEnabled.value, delay: autoHideDelay.value });
+};
+
+// 切换自动折叠设置
+const toggleAutoCollapse = async () => {
+    localStorage.setItem('nsd_auto_collapse_enabled', String(autoCollapseEnabled.value));
+    localStorage.setItem('nsd_auto_collapse_delay', String(autoCollapseDelay.value));
+    await emit('control-auto-collapse', { enabled: autoCollapseEnabled.value, delay: autoCollapseDelay.value });
+};
+
+// 更新自动折叠延迟时间
+const updateAutoCollapseDelay = async () => {
+    // 确保延迟时间在合理范围内（100ms到10秒）
+    autoCollapseDelay.value = Math.max(100, Math.min(10000, autoCollapseDelay.value));
+    localStorage.setItem('nsd_auto_collapse_delay', String(autoCollapseDelay.value));
+    await emit('control-auto-collapse', { enabled: autoCollapseEnabled.value, delay: autoCollapseDelay.value });
 };
 
 // 切换灵动岛设置
