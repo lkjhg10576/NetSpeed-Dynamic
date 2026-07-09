@@ -21,6 +21,11 @@ jobs:
         rustup update stable
         rustup default stable
 
+    - name: Cache Rust dependencies
+      uses: Swatinem/rust-cache@v2
+      with:
+        workspaces: src-tauri -> target
+
     - name: Build
       run: cargo build --release
       working-directory: src-tauri
