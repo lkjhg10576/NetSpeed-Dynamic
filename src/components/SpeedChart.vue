@@ -22,12 +22,9 @@ const getColors = () => {
     };
 };
 
-// 贝塞尔平滑曲线
+// 贝塞尔平滑曲线（仅添加路径，不开启新路径）
 const drawSmoothLine = (points: { x: number; y: number }[]) => {
     if (!ctx || points.length < 2) return;
-
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
 
     for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[Math.max(i - 1, 0)];
@@ -101,6 +98,8 @@ const draw = () => {
     ctx.fill();
 
     // 绘制线条
+    ctx.beginPath();
+    ctx.moveTo(points[0].x, points[0].y);
     drawSmoothLine(points);
     ctx.strokeStyle = colors.line;
     ctx.lineWidth = 2;
