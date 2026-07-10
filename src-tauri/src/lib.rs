@@ -273,6 +273,7 @@ pub fn run() {
             set_window_bounds,
             start_island_animation,
             audio_spectrum::get_audio_spectrum,
+            audio_spectrum::set_spectrum_active,
             music_controller::set_target_player,
             music_controller::fetch_netease_music_info,
             music_controller::control_system_media,
