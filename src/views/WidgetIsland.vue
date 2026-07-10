@@ -442,6 +442,21 @@ const showSpectrumIndicator = computed(() => {
     return isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value;
 });
 
+// 频谱开关状态追踪，避免重复调用后端
+let isSpectrumActive = false;
+
+// 按需启停音频频谱捕获：仅在前端需要显示频谱时才激活后端 FFT 运算，空闲时零 CPU 零分配
+watch([isPlaying, showSpectrumIndicator], () => {
+    const shouldActivate = isPlaying.value && showSpectrumIndicator.value;
+    if (shouldActivate && !isSpectrumActive) {
+        isSpectrumActive = true;
+        invoke('set_spectrum_active', { active: true }).catch(() => {});
+    } else if (!shouldActivate && isSpectrumActive) {
+        isSpectrumActive = false;
+        invoke('set_spectrum_active', { active: false }).catch(() => {});
+    }
+});
+
 const startRotation = () => {
     if (rotationTimer) clearInterval(rotationTimer);
     rotationTimer = window.setInterval(() => {
@@ -1899,6 +1914,8 @@ onUnmounted(() => {
     clearInterval(musicTimer);
     clearInterval(notifyTimer);
     clearInterval(spectrumTimer);
+    // 组件卸载时关闭频谱捕获，避免后端空跑
+    invoke('set_spectrum_active', { active: false }).catch(() => {});
     if (speedCycleTimer) clearInterval(speedCycleTimer);
 });
 </script>
