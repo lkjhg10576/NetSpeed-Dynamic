@@ -447,12 +447,7 @@ const togglePinTaskbar = async () => {
 
 // 灵动岛位置锁定状态，默认从本地存储读取
 const positionLocked = ref(localStorage.getItem('nsd_position_locked') === 'true');
-// 切换位置锁定状态：保存本地并发送信号给灵动岛
-const setPositionLock = async (locked: boolean) => {
-    positionLocked.value = locked;
-    localStorage.setItem('nsd_position_locked', String(locked));
-    await emit('control-position-lock', { locked: locked });
-};
+// 注意：位置解锁功能现在通过右键菜单实现，不再通过控制台按钮
 
 // 切换消息模式
 const toggleMsgMode = async () => {
