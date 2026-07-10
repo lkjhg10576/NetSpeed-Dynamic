@@ -324,11 +324,7 @@
                     <div class="set-item">
                         <div class="set-item-meta">
                             <span class="set-item-title">灵动岛位置</span>
-                            <span class="set-item-desc">{{ positionLocked ? '已锁定，解锁后可拖动调整位置' : (pinToTaskbar ? '已解锁，任务栏模式下仅可横向拖动' : '已解锁，可自由拖动调整位置') }}</span>
-                        </div>
-                        <div class="capsule-switch">
-                            <div class="capsule-btn" :class="{ 'is-active': !positionLocked }" @click="setPositionLock(false)">解锁</div>
-                            <div class="capsule-btn" :class="{ 'is-active': positionLocked }" @click="setPositionLock(true)">锁定</div>
+                            <span class="set-item-desc">{{ positionLocked ? '已锁定，右键灵动岛可解锁' : (pinToTaskbar ? '已解锁，任务栏模式下仅可横向拖动' : '已解锁，可自由拖动调整位置') }}</span>
                         </div>
                     </div>
 
