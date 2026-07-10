@@ -338,6 +338,17 @@
                             <span class="slider"></span>
                         </label>
                     </div>
+
+                    <div class="set-item">
+                        <div class="set-item-meta">
+                            <span class="set-item-title">省内存模式</span>
+                            <span class="set-item-desc">{{ destroyOnClose ? '关闭控制台时彻底释放内存，重新打开会稍慢' : '关闭控制台时仅隐藏到后台' }}</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="destroyOnClose" @change="toggleDestroyOnClose">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
                 </div>
             </template>
         </div>
@@ -429,6 +440,9 @@ const msgModeEnabled = ref(localStorage.getItem('nsd_msg_mode') === 'true');
 const enableRotation = ref(localStorage.getItem('nsd_rotation_mode') === 'true');
 let wasMusicEnabledBeforeHardware = false;
 
+// 省内存模式：关闭控制台时彻底销毁主窗口 WebView，释放 50-120MB 内存（B1 方案）
+const destroyOnClose = ref(localStorage.getItem('nsd_destroy_on_close') === 'true');
+
 // 自动隐藏相关变量
 const autoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true');
 const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
@@ -496,6 +510,16 @@ const updateAutoCollapseDelay = async () => {
 // 切换灵动岛设置
 const toggleDynamicSet = () => {
     isDynamicSet.value = !isDynamicSet.value;
+};
+
+// 切换省内存模式
+const toggleDestroyOnClose = async () => {
+    localStorage.setItem('nsd_destroy_on_close', String(destroyOnClose.value));
+    try {
+        await invoke('set_destroy_on_close', { enabled: destroyOnClose.value });
+    } catch (e) {
+        console.error('同步省内存模式失败', e);
+    }
 };
 
 // 切换灵动岛轮换模式
@@ -919,6 +943,9 @@ watch(enableMusicCtrl, async (newVal) => {
 onMounted(async () => {
     // 告诉 Rust 上次绑定的目标是谁
     await invoke('set_target_player', { player: targetPlayer.value }).catch(() => { });
+
+    // 同步省内存模式设置到后端
+    await invoke('set_destroy_on_close', { enabled: destroyOnClose.value }).catch(() => { });
 
     silentCheckUpdate();
 
