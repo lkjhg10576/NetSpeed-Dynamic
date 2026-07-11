@@ -400,12 +400,22 @@ import StatsChart from '../components/StatsChart.vue';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { formatSpeed } from '../utils/format';
+import {
+    NSD_ISLAND_OPACITY, NSD_ISLAND_THEME,
+    NSD_MUSIC_CTRL, NSD_MSG_NOTIFY, NSD_HARDWARE_MON,
+    NSD_MSG_MODE, NSD_ROTATION_MODE, NSD_PIN_TASKBAR,
+    NSD_POSITION_LOCKED, NSD_DESTROY_ON_CLOSE,
+    NSD_AUTO_HIDE_ENABLED, NSD_AUTO_HIDE_DELAY,
+    NSD_AUTO_COLLAPSE_ENABLED, NSD_AUTO_COLLAPSE_DELAY,
+    NSD_THEME_MODE, NSD_TARGET_PLAYER, NSD_TRAFFIC_STATS
+} from '../constants/storageKeys';
 
 const isWidgetVisible = ref(false);
 const autoStart = ref(false);
-const opacity = ref(Number(localStorage.getItem('nsd_island_opacity') || '100'));
+const opacity = ref(Number(localStorage.getItem(NSD_ISLAND_OPACITY) || '100'));
 
-const savedTheme = localStorage.getItem('nsd_theme_mode') || 'light';
+const savedTheme = localStorage.getItem(NSD_THEME_MODE) || 'light';
 const themeMode = ref(['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'light');
 
 const uploadSpeed = ref('0 B/s');
@@ -419,11 +429,11 @@ const isChecking = ref(false);
 const hasNewVersion = ref(false);
 
 // --- 音乐控制平台切换功能 ---
-const targetPlayer = ref(localStorage.getItem('nsd_target_player') || 'netease');
+const targetPlayer = ref(localStorage.getItem(NSD_TARGET_PLAYER) || 'netease');
 
 const setTargetPlayer = async (player: string) => {
     targetPlayer.value = player;
-    localStorage.setItem('nsd_target_player', player); // 本地记忆化
+    localStorage.setItem(NSD_TARGET_PLAYER, player); // 本地记忆化
     try {
         await invoke('set_target_player', { player }); // 秒发给 Rust 立即生效
     } catch (e) {
@@ -432,35 +442,35 @@ const setTargetPlayer = async (player: string) => {
 };
 
 // 灵动岛设置相关的 UI 状态绑定
-const islandTheme = ref(localStorage.getItem('nsd_island_theme') || 'black');
-const enableMusicCtrl = ref(localStorage.getItem('nsd_music_ctrl') === 'true');
-const enableMsgNotify = ref(localStorage.getItem('nsd_msg_notify') === 'true');
-const enableHardwareMon = ref(localStorage.getItem('nsd_hardware_mon') === 'true');
-const msgModeEnabled = ref(localStorage.getItem('nsd_msg_mode') === 'true');
-const enableRotation = ref(localStorage.getItem('nsd_rotation_mode') === 'true');
+const islandTheme = ref(localStorage.getItem(NSD_ISLAND_THEME) || 'black');
+const enableMusicCtrl = ref(localStorage.getItem(NSD_MUSIC_CTRL) === 'true');
+const enableMsgNotify = ref(localStorage.getItem(NSD_MSG_NOTIFY) === 'true');
+const enableHardwareMon = ref(localStorage.getItem(NSD_HARDWARE_MON) === 'true');
+const msgModeEnabled = ref(localStorage.getItem(NSD_MSG_MODE) === 'true');
+const enableRotation = ref(localStorage.getItem(NSD_ROTATION_MODE) === 'true');
 let wasMusicEnabledBeforeHardware = false;
 
 // 省内存模式：关闭控制台时彻底销毁主窗口 WebView，释放 50-120MB 内存（B1 方案）
-const destroyOnClose = ref(localStorage.getItem('nsd_destroy_on_close') === 'true');
+const destroyOnClose = ref(localStorage.getItem(NSD_DESTROY_ON_CLOSE) === 'true');
 
 // 自动隐藏相关变量
-const autoHideEnabled = ref(localStorage.getItem('nsd_auto_hide_enabled') === 'true');
-const autoHideDelay = ref(Number(localStorage.getItem('nsd_auto_hide_delay') || '2000')); // 默认2秒
+const autoHideEnabled = ref(localStorage.getItem(NSD_AUTO_HIDE_ENABLED) === 'true');
+const autoHideDelay = ref(Number(localStorage.getItem(NSD_AUTO_HIDE_DELAY) || '2000')); // 默认2秒
 
 // 自动折叠相关变量（灵动岛展开后，鼠标离开自动折叠回小岛状态）
-const autoCollapseEnabled = ref(localStorage.getItem('nsd_auto_collapse_enabled') === 'true');
-const autoCollapseDelay = ref(Number(localStorage.getItem('nsd_auto_collapse_delay') || '2000')); // 默认2秒
+const autoCollapseEnabled = ref(localStorage.getItem(NSD_AUTO_COLLAPSE_ENABLED) === 'true');
+const autoCollapseDelay = ref(Number(localStorage.getItem(NSD_AUTO_COLLAPSE_DELAY) || '2000')); // 默认2秒
 
 // 置于任务栏状态，默认从本地存储读取
-const pinToTaskbar = ref(localStorage.getItem('nsd_pin_taskbar') === 'true');
+const pinToTaskbar = ref(localStorage.getItem(NSD_PIN_TASKBAR) === 'true');
 // 切换开关时保存本地并发送信号给灵动岛
 const togglePinTaskbar = async () => {
-    localStorage.setItem('nsd_pin_taskbar', String(pinToTaskbar.value));
+    localStorage.setItem(NSD_PIN_TASKBAR, String(pinToTaskbar.value));
     await emit('control-pin-taskbar', { enabled: pinToTaskbar.value });
 };
 
 // 灵动岛位置锁定状态，默认从本地存储读取
-const positionLocked = ref(localStorage.getItem('nsd_position_locked') === 'true');
+const positionLocked = ref(localStorage.getItem(NSD_POSITION_LOCKED) === 'true');
 // 注意：位置解锁功能现在通过右键菜单实现，不再通过控制台按钮
 
 // 切换消息模式
@@ -468,19 +478,19 @@ const toggleMsgMode = async () => {
     // 如果开启静默模式，则强制开启消息通知并同步本地存储
     if (msgModeEnabled.value) { enableMsgNotify.value = true; toggleMsgNotify(); }
 
-    localStorage.setItem('nsd_msg_mode', String(msgModeEnabled.value));
+    localStorage.setItem(NSD_MSG_MODE, String(msgModeEnabled.value));
     await emit('control-msg-mode', { enabled: msgModeEnabled.value });
 };
 
 // 新增切换保存方法
 const toggleMsgNotify = () => {
-    localStorage.setItem('nsd_msg_notify', String(enableMsgNotify.value));
+    localStorage.setItem(NSD_MSG_NOTIFY, String(enableMsgNotify.value));
 };
 
 // 切换自动隐藏设置
 const toggleAutoHide = async () => {
-    localStorage.setItem('nsd_auto_hide_enabled', String(autoHideEnabled.value));
-    localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
+    localStorage.setItem(NSD_AUTO_HIDE_ENABLED, String(autoHideEnabled.value));
+    localStorage.setItem(NSD_AUTO_HIDE_DELAY, String(autoHideDelay.value));
     await emit('control-auto-hide', { enabled: autoHideEnabled.value, delay: autoHideDelay.value });
 };
 
@@ -488,14 +498,14 @@ const toggleAutoHide = async () => {
 const updateAutoHideDelay = async () => {
     // 确保延迟时间在合理范围内（100ms到10秒）
     autoHideDelay.value = Math.max(100, Math.min(10000, autoHideDelay.value));
-    localStorage.setItem('nsd_auto_hide_delay', String(autoHideDelay.value));
+    localStorage.setItem(NSD_AUTO_HIDE_DELAY, String(autoHideDelay.value));
     await emit('control-auto-hide', { enabled: autoHideEnabled.value, delay: autoHideDelay.value });
 };
 
 // 切换自动折叠设置
 const toggleAutoCollapse = async () => {
-    localStorage.setItem('nsd_auto_collapse_enabled', String(autoCollapseEnabled.value));
-    localStorage.setItem('nsd_auto_collapse_delay', String(autoCollapseDelay.value));
+    localStorage.setItem(NSD_AUTO_COLLAPSE_ENABLED, String(autoCollapseEnabled.value));
+    localStorage.setItem(NSD_AUTO_COLLAPSE_DELAY, String(autoCollapseDelay.value));
     await emit('control-auto-collapse', { enabled: autoCollapseEnabled.value, delay: autoCollapseDelay.value });
 };
 
@@ -503,7 +513,7 @@ const toggleAutoCollapse = async () => {
 const updateAutoCollapseDelay = async () => {
     // 确保延迟时间在合理范围内（100ms到10秒）
     autoCollapseDelay.value = Math.max(100, Math.min(10000, autoCollapseDelay.value));
-    localStorage.setItem('nsd_auto_collapse_delay', String(autoCollapseDelay.value));
+    localStorage.setItem(NSD_AUTO_COLLAPSE_DELAY, String(autoCollapseDelay.value));
     await emit('control-auto-collapse', { enabled: autoCollapseEnabled.value, delay: autoCollapseDelay.value });
 };
 
@@ -514,7 +524,7 @@ const toggleDynamicSet = () => {
 
 // 切换省内存模式
 const toggleDestroyOnClose = async () => {
-    localStorage.setItem('nsd_destroy_on_close', String(destroyOnClose.value));
+    localStorage.setItem(NSD_DESTROY_ON_CLOSE, String(destroyOnClose.value));
     try {
         await invoke('set_destroy_on_close', { enabled: destroyOnClose.value });
     } catch (e) {
@@ -525,7 +535,7 @@ const toggleDestroyOnClose = async () => {
 // 切换灵动岛轮换模式
 const toggleRotation = async () => {
     // 1. 保存并发送轮换功能的开关状态
-    localStorage.setItem('nsd_rotation_mode', String(enableRotation.value));
+    localStorage.setItem(NSD_ROTATION_MODE, String(enableRotation.value));
     await emit('control-rotation-mode', { enabled: enableRotation.value });
 
     // ✨ 新增限制逻辑：如果用户【开启】了轮换功能
@@ -533,7 +543,7 @@ const toggleRotation = async () => {
         // 强行将静默消息模式设为关闭（false）
         msgModeEnabled.value = false;
         // 同步更新本地电脑的记忆状态
-        localStorage.setItem('nsd_msg_mode', 'false');
+        localStorage.setItem(NSD_MSG_MODE, 'false');
         // 发送信号通知灵动岛浮窗：静默模式已关闭，请立刻现身
         await emit('control-msg-mode', { enabled: false });
     }
@@ -633,7 +643,7 @@ const getLocalYYYYMMDD = (date: Date) => {
 // 加载网络流量统计
 const loadTrafficData = () => {
     try {
-        const stored = localStorage.getItem('nsd_traffic_stats');
+        const stored = localStorage.getItem(NSD_TRAFFIC_STATS);
         if (stored) trafficData.value = JSON.parse(stored);
     } catch (e) {
         console.error("加载统计数据失败", e);
@@ -644,7 +654,7 @@ loadTrafficData();
 // 切换右侧面板
 const toggleRightPanel = async () => {
     rightPanel.value = rightPanel.value === 'settings' ? 'stats' : 'settings';
-    localStorage.setItem('nsd_traffic_stats', JSON.stringify(trafficData.value));
+    localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));
     saveThrottleCounter = 0;
 
     // 侧边栏布局变化会挤压左侧卡片，强制让实时走势图重新计算高宽
@@ -704,12 +714,6 @@ let systemThemeMedia: MediaQueryList;
 const speedChartRef = ref<InstanceType<typeof SpeedChart> | null>(null);
 const chartDataQueue = ref<number[]>(Array(15).fill(0));
 
-const formatSpeed = (bytes: number) => {
-    if (bytes < 1024) return bytes + ' B/s';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB/s';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB/s';
-};
-
 // 获取并更新网络流量统计
 const fetchSpeedStats = async () => {
     try {
@@ -738,7 +742,7 @@ const fetchSpeedStats = async () => {
 
                 saveThrottleCounter++;
                 if (saveThrottleCounter >= 5) {
-                    localStorage.setItem('nsd_traffic_stats', JSON.stringify(trafficData.value));
+                    localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));
                     saveThrottleCounter = 0;
                 }
             }
@@ -886,7 +890,7 @@ const applyTheme = () => {
 };
 
 const handleThemeChange = () => {
-    localStorage.setItem('nsd_theme_mode', themeMode.value);
+    localStorage.setItem(NSD_THEME_MODE, themeMode.value);
     applyTheme();
 };
 
@@ -897,7 +901,7 @@ const handleSystemThemeUpdate = () => {
 };
 
 const toggleHardwareMon = async () => {
-    localStorage.setItem('nsd_hardware_mon', String(enableHardwareMon.value));
+    localStorage.setItem(NSD_HARDWARE_MON, String(enableHardwareMon.value));
     await emit('control-hardware-mon', { enabled: enableHardwareMon.value });
 
     if (enableHardwareMon.value) {
@@ -916,26 +920,26 @@ const toggleHardwareMon = async () => {
 };
 
 watch(opacity, async (newVal) => {
-    localStorage.setItem('nsd_island_opacity', newVal.toString());
+    localStorage.setItem(NSD_ISLAND_OPACITY, newVal.toString());
     await emit('control-island-opacity', { opacity: newVal });
 });
 
 watch(islandTheme, async (newVal) => {
-    localStorage.setItem('nsd_island_theme', newVal);
+    localStorage.setItem(NSD_ISLAND_THEME, newVal);
     await emit('control-island-theme', { theme: newVal });
     console.log('灵动岛颜色切换为:', newVal);
 });
 
 // 添加监听器，将状态同步给灵动岛
 watch(enableMusicCtrl, async (newVal) => {
-    localStorage.setItem('nsd_music_ctrl', newVal.toString());
+    localStorage.setItem(NSD_MUSIC_CTRL, newVal.toString());
     await emit('control-music-ctl', { enabled: newVal });
     console.log('音乐控制器状态切换为:', newVal);
 
     // 👇新增互斥防呆逻辑：如果用户手动开启音乐，强行把硬件关掉
     if (newVal && enableHardwareMon.value) {
         enableHardwareMon.value = false;
-        localStorage.setItem('nsd_hardware_mon', 'false');
+        localStorage.setItem(NSD_HARDWARE_MON, 'false');
         await emit('control-hardware-mon', { enabled: false });
     }
 });
@@ -1015,7 +1019,7 @@ onMounted(async () => {
 onUnmounted(() => {
     clearInterval(speedTimer);
     systemThemeMedia?.removeEventListener('change', handleSystemThemeUpdate);
-    localStorage.setItem('nsd_traffic_stats', JSON.stringify(trafficData.value));
+    localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));
 });
 
 const toggleWidget = async () => {
