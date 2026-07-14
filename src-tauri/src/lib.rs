@@ -65,10 +65,10 @@ fn start_animation_thread() {
         let rx = Arc::new(rx);
         loop {
             // try_recv 非阻塞：只在有新任务时执行，空闲时零 CPU
-            let cmd = rx.recv();
+            let mut cmd = rx.recv();
             match cmd {
                 Ok(cmd) => {
-                    let start_time = std::time::Instant::now();
+                    let mut start_time = std::time::Instant::now();
                     let duration = std::time::Duration::from_millis(400);
                     let freq = 2.4;
                     let decay = 12.0;
