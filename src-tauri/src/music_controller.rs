@@ -253,9 +253,7 @@ pub async fn get_music_timeline() -> Result<Option<MusicTimeline>, String> {
         None => return Ok(None),
     };
 
-    let timeline = session.GetTimelinePropertiesAsync()
-        .map_err(|e| e.to_string())?
-        .get()
+    let timeline = session.GetTimelineProperties()
         .map_err(|e| e.to_string())?;
 
     // TimeSpan.Duration 单位为 100ns，除以 10000 得到毫秒
