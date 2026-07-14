@@ -3,6 +3,7 @@ use rustfft::{num_complex::Complex, Fft, FftPlanner};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tauri::Emitter;
 
 // 存储 5 个频段的全局数组，默认高度 0.35 (对应前端的 scaleY(0.35))
 static SPECTRUM: Mutex<[f32; 5]> = Mutex::new([0.35; 5]);

@@ -6,7 +6,7 @@ mod system_events;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, TrySendError};
 use tauri::{State, Manager, Emitter, WebviewWindowBuilder, WebviewUrl};
 use sysinfo::{Networks, System};
 use std::time::{Duration, Instant};
@@ -37,7 +37,7 @@ struct AnchorState {
 static ANIMATION_ANCHOR: Mutex<Option<AnchorState>> = Mutex::new(None);
 
 // B3: 常驻动画线程的 channel，只保留最新一条动画参数（capacity=1，新任务覆盖旧任务）
-static ANIMATION_CHANNEL: Mutex<Option<std::sync::mpsc::Sender<AnimationCommand>>> = Mutex::new(None);
+static ANIMATION_CHANNEL: Mutex<Option<std::sync::mpsc::SyncSender<AnimationCommand>>> = Mutex::new(None);
 
 // 一次动画的完整参数
 struct AnimationCommand {
@@ -58,7 +58,7 @@ struct AnimationCommand {
 
 /// 启动常驻动画线程（单次创建，loop 监听 channel）
 fn start_animation_thread() {
-    let (tx, rx): (std::sync::mpsc::Sender<AnimationCommand>, Receiver<AnimationCommand>) = std::sync::mpsc::sync_channel(1);
+    let (tx, rx): (std::sync::mpsc::SyncSender<AnimationCommand>, Receiver<AnimationCommand>) = std::sync::mpsc::sync_channel(1);
     let _ = ANIMATION_CHANNEL.lock().unwrap().insert(tx);
 
     std::thread::spawn(move || {
@@ -272,8 +272,10 @@ async fn start_island_animation(
 
             let tx = ANIMATION_CHANNEL.lock().unwrap().clone();
             if let Some(tx) = tx {
-                // send 会阻塞直到 channel 有空间（capacity=1），新命令自动覆盖旧命令
-                if tx.send(cmd).is_err() {
+                // try_send 非阻塞：channel 满（capacity=1）说明动画线程还在跑 400ms 动画
+                // 直接丢新不阻塞 UI 线程；接收方 try_recv 在动画期间会持续检测
+                // 真正"新命令覆盖旧命令"的语义在接收方（第 78 行 try_recv 处）实现
+                if let Err(TrySendError::Disconnected(_)) = tx.try_send(cmd) {
                     return Err("动画线程已关闭".into());
                 }
             }
