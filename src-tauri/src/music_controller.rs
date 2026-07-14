@@ -241,51 +241,109 @@ pub async fn get_random_cover_url(song_name: String, artist_name: String) -> Res
 
 #[derive(serde::Serialize)]
 pub struct MusicTimeline {
+    /// 相对于有效播放区间起点的位置（毫秒）
     pub position_ms: u64,
+    /// 有效播放区间总时长（毫秒）
     pub end_ms: u64,
+    pub can_seek: bool,
 }
 
-/// 读取当前媒体会话的播放进度与总时长（毫秒）
-#[command]
-pub async fn get_music_timeline() -> Result<Option<MusicTimeline>, String> {
-    let session = match get_target_media_session() {
-        Some(s) => s,
-        None => return Ok(None),
-    };
+struct TimelineBounds {
+    start_ms: u64,
+    end_ms: u64,
+    position_ms: u64,
+    can_seek: bool,
+}
 
-    let timeline = session.GetTimelineProperties()
-        .map_err(|e| e.to_string())?;
+fn timespan_to_ms(duration: i64) -> Option<u64> {
+    if duration < 0 {
+        None
+    } else {
+        Some((duration as u64) / 10_000)
+    }
+}
 
-    // TimeSpan.Duration 单位为 100ns，除以 10000 得到毫秒
-    let position_ms = timeline.Position()
-        .map(|ts| (ts.Duration / 10000) as u64)
+fn read_timeline_bounds(
+    session: &GlobalSystemMediaTransportControlsSession,
+) -> Result<Option<TimelineBounds>, String> {
+    let timeline = session.GetTimelineProperties().map_err(|e| e.to_string())?;
+
+    let start_ms = timeline.StartTime().ok()
+        .and_then(|value| timespan_to_ms(value.Duration))
         .unwrap_or(0);
-    let end_ms = timeline.EndTime()
-        .map(|ts| (ts.Duration / 10000) as u64)
+    let end_ms = timeline.EndTime().ok()
+        .and_then(|value| timespan_to_ms(value.Duration))
         .unwrap_or(0);
+    let min_seek_ms = timeline.MinSeekTime().ok()
+        .and_then(|value| timespan_to_ms(value.Duration))
+        .unwrap_or(start_ms);
+    let max_seek_ms = timeline.MaxSeekTime().ok()
+        .and_then(|value| timespan_to_ms(value.Duration))
+        .unwrap_or(end_ms);
+    let position_ms = timeline.Position().ok()
+        .and_then(|value| timespan_to_ms(value.Duration))
+        .unwrap_or(start_ms);
 
-    // 总时长为 0 视为无有效进度信息（如直播流）
-    if end_ms == 0 {
+    // 部分播放器只上报 seek 范围，另一些只上报 StartTime/EndTime。
+    let has_seek_range = max_seek_ms > min_seek_ms;
+    let effective_start = if has_seek_range { min_seek_ms } else { start_ms };
+    let effective_end = if has_seek_range { max_seek_ms } else { end_ms };
+    if effective_end <= effective_start {
         return Ok(None);
     }
 
-    Ok(Some(MusicTimeline { position_ms, end_ms }))
+    let can_seek = session.GetPlaybackInfo().ok()
+        .and_then(|info| info.Controls().ok())
+        .and_then(|controls| controls.IsPlaybackPositionEnabled().ok())
+        .unwrap_or(has_seek_range);
+
+    Ok(Some(TimelineBounds {
+        start_ms: effective_start,
+        end_ms: effective_end,
+        position_ms: position_ms.clamp(effective_start, effective_end),
+        can_seek,
+    }))
 }
 
-/// 拖动定位：跳转到指定播放位置（毫秒）
+/// 读取当前媒体会话的归一化播放进度与总时长（毫秒）
 #[command]
-pub async fn seek_music(position_ms: u64) -> Result<(), String> {
+pub async fn get_music_timeline() -> Result<Option<MusicTimeline>, String> {
     let session = match get_target_media_session() {
-        Some(s) => s,
-        None => return Err("无活动媒体会话".to_string()),
+        Some(session) => session,
+        None => return Ok(None),
+    };
+    let bounds = match read_timeline_bounds(&session)? {
+        Some(bounds) => bounds,
+        None => return Ok(None),
     };
 
-    // 毫秒转回 100ns 单位（ticks）
-    let position_ticks = (position_ms * 10000) as i64;
-    session.TryChangePlaybackPositionAsync(position_ticks)
+    Ok(Some(MusicTimeline {
+        position_ms: bounds.position_ms.saturating_sub(bounds.start_ms),
+        end_ms: bounds.end_ms.saturating_sub(bounds.start_ms),
+        can_seek: bounds.can_seek,
+    }))
+}
+
+/// 拖动定位：跳转到相对于有效播放区间起点的位置（毫秒）
+#[command]
+pub async fn seek_music(position_ms: u64) -> Result<(), String> {
+    let session = get_target_media_session().ok_or_else(|| "无活动媒体会话".to_string())?;
+    let bounds = read_timeline_bounds(&session)?
+        .ok_or_else(|| "当前媒体未提供有效播放进度".to_string())?;
+    if !bounds.can_seek {
+        return Err("当前媒体不支持拖动定位".to_string());
+    }
+
+    let duration_ms = bounds.end_ms.saturating_sub(bounds.start_ms);
+    let absolute_ms = bounds.start_ms.saturating_add(position_ms.min(duration_ms));
+    let position_ticks = absolute_ms.saturating_mul(10_000).min(i64::MAX as u64) as i64;
+    let changed = session.TryChangePlaybackPositionAsync(position_ticks)
         .map_err(|e| e.to_string())?
         .get()
         .map_err(|e| e.to_string())?;
+    if !changed {
+        return Err("播放器拒绝了定位请求".to_string());
+    }
 
     Ok(())
 }
