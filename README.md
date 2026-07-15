@@ -1,6 +1,6 @@
 # NetSpeed Dynamic Plus（NSD Plus）
 
-> **关于本版本**：NSD Plus 由 **鲫鱼 NSD Pro** 扩展而来。NSD 即 *NetSpeed Dynamic Pro* 的缩写，是在原版基础之上持续增强的衍生版本。
+> **关于本版本**：NSD Plus 由 **NSD Pro** 扩展而来。NSD 即 *NetSpeed Dynamic Pro* 的缩写，是在原版基础之上持续增强的衍生版本。
 
 <div align="center">
 
@@ -42,9 +42,9 @@
 
 ### 多平台音乐控制
 
-- **播放控制**：上一首 / 播放暂停 / 下一首（通过系统 SMTC API）
-- **多平台支持**：网易云音乐、Spotify、Apple Music、QQ音乐、酷狗音乐、Echo Music、洛雪音乐
-- **歌曲信息**：实时显示歌名、歌手和专辑封面
+- **播放控制**：上一首 / 播放暂停 / 下一首/进度查看与控制（通过系统 SMTC API）
+- **多平台支持**：网易云音乐、Spotify、Apple Music、QQ音乐、酷狗音乐、Echo Music、洛雪音乐，原生SMTC
+- **歌曲信息**：实时显示歌名、歌手和专辑封面，时长
 - **封面旋转**：播放时封面自动旋转，暂停时停止
 - **多源封面获取**：优先从系统 SMTC 提取本地高清封面，降级至网易云、Deezer、Apple Music，SVG 渐变兜底
 - **封面缓存**：智能缓存最近 50 首歌曲封面，提升响应速度
