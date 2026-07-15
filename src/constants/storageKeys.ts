@@ -28,6 +28,15 @@ export const NSD_AUTO_HIDE_DELAY = 'nsd_auto_hide_delay';
 export const NSD_AUTO_COLLAPSE_ENABLED = 'nsd_auto_collapse_enabled';
 export const NSD_AUTO_COLLAPSE_DELAY = 'nsd_auto_collapse_delay';
 
+// 全屏自动隐藏
+export const NSD_AUTO_HIDE_FS = 'nsd_autohide_fs';
+
+// 番茄钟
+export const NSD_POMODORO_ACTIVE = 'nsd_pomodoro_active';
+export const NSD_POMODORO_STARTED = 'nsd_pomodoro_started';
+export const NSD_POMODORO_VISIBLE = 'nsd_pomodoro_visible';
+export const NSD_POMODORO_TIME = 'nsd_pomodoro_time';
+
 // 控制台
 export const NSD_THEME_MODE = 'nsd_theme_mode';
 export const NSD_TARGET_PLAYER = 'nsd_target_player';
