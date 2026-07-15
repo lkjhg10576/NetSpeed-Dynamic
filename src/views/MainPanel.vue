@@ -1,5 +1,22 @@
 <template>
     <div class="panel-container">
+        <div class="custom-titlebar">
+            <div data-tauri-drag-region class="titlebar-drag-area"></div>
+
+            <div class="titlebar-controls">
+                <button class="titlebar-btn" @click="minimizeWindow">
+                    <svg viewBox="0 0 12 12" fill="currentColor">
+                        <rect x="1" y="5" width="10" height="1.5" rx="0.5" />
+                    </svg>
+                </button>
+                <button class="titlebar-btn close-btn" @click="closeWindow">
+                    <svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+                        <path d="M2.5 2.5L9.5 9.5M9.5 2.5L2.5 9.5" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
         <header class="panel-header">
             <div class="brand">
                 <img src="../assets/logo.png" class="logo-icon">
@@ -11,7 +28,7 @@
 
             <div class="header-controls">
                 <button class="dynamicset-btn" :class="{ 'is-active': isDynamicSet }" @click="toggleDynamicSet">
-                    灵动岛设置
+                    {{ currentView === 'main' ? '灵动岛设置' : (currentView === 'island' ? 'LiveActive' : '返回设置') }}
                 </button>
                 <span class="control-separator"></span>
 
@@ -27,8 +44,8 @@
 
         <hr class="divider" />
 
-        <div class="main-content" :class="{ 'dynamicset-layout': isDynamicSet }">
-            <template v-if="!isDynamicSet">
+        <div class="main-content" :class="{ 'dynamicset-layout': currentView !== 'main' }">
+            <template v-if="currentView === 'main'">
                 <div class="card status-card" @click="metricDropdownOpen = false">
                     <div class="card-header-row">
                         <div class="metric-dropdown" :class="{ open: metricDropdownOpen }">
@@ -224,8 +241,7 @@
                 </template>
             </template>
 
-            <template v-else>
-                <!-- 移除内部标题头，直接使用 grid 布局铺满 -->
+            <template v-else-if="currentView === 'island'">
                 <div class="dynamicset-grid">
                     <div class="set-item-top"
                         style="grid-column: span 2; flex-direction: column; align-items: flex-start; justify-content: center; gap: 8px;">
@@ -264,6 +280,11 @@
                                 @click="setTargetPlayer('echo')">
                                 <img src="../assets/echomusic.ico" class="platform-icon" alt="icon">
                                 EchoMusic
+                            </div>
+                            <div class="capsule-btn" :class="{ 'is-active': targetPlayer === 'lx-music' }"
+                                @click="setTargetPlayer('lx-music')">
+                                <img src="../assets/lxmusic.png" class="platform-icon" alt="icon">
+                                洛雪音乐
                             </div>
                             <div class="capsule-btn smtc-btn" :class="{ 'is-active': targetPlayer === 'smtc' }"
                                 @click="setTargetPlayer('smtc')">
@@ -384,6 +405,17 @@
 
                     <div class="set-item">
                         <div class="set-item-meta">
+                            <span class="set-item-title">全屏自动隐藏</span>
+                            <span class="set-item-desc">游戏/视频全屏时自动隐藏灵动岛</span>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" v-model="autoHideFullscreen" @change="toggleAutoHideFS">
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+
+                    <div class="set-item">
+                        <div class="set-item-meta">
                             <span class="set-item-title">灵动岛位置</span>
                             <span class="set-item-desc">{{ positionLocked ? '已锁定，右键灵动岛可解锁' : (pinToTaskbar ? '已解锁，任务栏模式下仅可横向拖动' : '已解锁，可自由拖动调整位置') }}</span>
                         </div>
@@ -411,6 +443,10 @@
                         </label>
                     </div>
                 </div>
+            </template>
+
+            <template v-else-if="currentView === 'live'">
+                <LiveActive />
             </template>
         </div>
 
@@ -458,6 +494,7 @@ import { emit, listen } from '@tauri-apps/api/event';
 import { getVersion } from '@tauri-apps/api/app';
 import SpeedChart from '../components/SpeedChart.vue';
 import StatsChart from '../components/StatsChart.vue';
+import LiveActive from './LiveActive.vue';
 import { enable, disable, isEnabled } from '@tauri-apps/plugin-autostart';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -470,7 +507,7 @@ import {
     NSD_AUTO_HIDE_ENABLED, NSD_AUTO_HIDE_DELAY,
     NSD_AUTO_COLLAPSE_ENABLED, NSD_AUTO_COLLAPSE_DELAY,
     NSD_THEME_MODE, NSD_TARGET_PLAYER, NSD_TRAFFIC_STATS,
-    NSD_CHART_METRIC
+    NSD_CHART_METRIC, NSD_AUTO_HIDE_FS
 } from '../constants/storageKeys';
 
 const isWidgetVisible = ref(false);
@@ -485,7 +522,17 @@ const downloadSpeed = ref('0 B/s');
 
 const appVersion = ref('1.0.0');
 
-const isDynamicSet = ref(false);
+const isDynamicSet = computed(() => currentView.value !== 'main');
+
+// 三视图状态：'main' | 'island' | 'live'
+const currentView = ref<'main' | 'island' | 'live'>('main');
+
+// 切换视图：主设置 → 岛设置 → LiveActive → 主设置
+const toggleDynamicSet = () => {
+    if (currentView.value === 'main') currentView.value = 'island';
+    else if (currentView.value === 'island') currentView.value = 'live';
+    else currentView.value = 'main';
+};
 
 const isChecking = ref(false);
 const hasNewVersion = ref(false);
@@ -580,8 +627,24 @@ const updateAutoCollapseDelay = async () => {
 };
 
 // 切换灵动岛设置
-const toggleDynamicSet = () => {
-    isDynamicSet.value = !isDynamicSet.value;
+const toggleDynamicSetOld = () => {
+    if (currentView.value === 'main') currentView.value = 'island';
+    else currentView.value = 'main';
+};
+
+// 控制窗口功能
+const minimizeWindow = async () => {
+    await getCurrentWindow().minimize();
+};
+const closeWindow = async () => {
+    await getCurrentWindow().hide();
+};
+
+// 全屏自动隐藏开关
+const autoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
+const toggleAutoHideFS = async () => {
+    localStorage.setItem(NSD_AUTO_HIDE_FS, String(autoHideFullscreen.value));
+    await emit('control-autohide-fs', { enabled: autoHideFullscreen.value });
 };
 
 // 切换省内存模式
@@ -612,15 +675,10 @@ const toggleRotation = async () => {
 };
 
 // 切换灵动岛设置时，重绘图表
-watch(isDynamicSet, async (newVal) => {
-    if (!newVal) {
-        // 等待 Vue 将 DOM 节点重新渲染出来
+watch(currentView, async (newVal) => {
+    if (newVal === 'main') {
         await nextTick();
-
-        // 重绘网速走势图
         speedChartRef.value?.resize();
-
-        // 如果用户切走前打开的是数据统计面板，则重绘统计图表
         if (rightPanel.value === 'stats') {
             statsChartRef.value?.resize();
         }
@@ -1115,11 +1173,11 @@ onMounted(async () => {
         console.error("获取应用版本号失败:", e);
     }
 
-    // 监听来自灵动岛右键菜单的"打开设置"信号
+    // 监听来自灵动岛右键菜单的“打开设置”信号
     await listen('open-settings-panel', async () => {
-        // 1. 如果当前不在灵动岛设置页，就切过去
-        if (!isDynamicSet.value) {
-            isDynamicSet.value = true;
+        // 1. 如果当前在主设置页，就切到灵动岛设置页
+        if (currentView.value === 'main') {
+            currentView.value = 'island';
         }
 
         // 2. 唤醒并聚焦主窗口
@@ -1295,12 +1353,13 @@ const toggleWidget = async () => {
 
 .panel-container {
     background-color: var(--bg-body);
-    padding: 28px 32px;
+    padding: 36px 32px 28px 32px;
     max-width: 800px;
     margin: 0 auto;
     display: flex;
     flex-direction: column;
     min-height: calc(100vh - 56px);
+    position: relative;
 }
 
 .panel-header {
@@ -2358,5 +2417,64 @@ input:disabled+.slider {
 
 .delay-input[type=number] {
     -moz-appearance: textfield;
+}
+
+/* 自定义标题栏 */
+.custom-titlebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    z-index: 9999;
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+.titlebar-drag-area {
+    flex-grow: 1;
+    height: 100%;
+    -webkit-app-region: drag;
+}
+
+.titlebar-controls {
+    display: flex;
+    height: 100%;
+    -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-body);
+    width: 45px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.titlebar-btn svg {
+    width: 11px;
+    height: 11px;
+    opacity: 0.8;
+}
+
+.titlebar-btn:hover {
+    background-color: var(--btn-sec-bg);
+}
+
+.titlebar-btn:hover svg {
+    opacity: 1;
+}
+
+.close-btn:hover {
+    background-color: #ff4757 !important;
+    color: #ffffff !important;
 }
 </style>

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
     <transition @enter="onEnter" @leave="onLeave" :css="false">
         <div v-show="isIslandVisible" :class="['island-container', { 'has-music-border': isGlowBorderEnabled }]"
             @mousedown="handleMouseDown" @mousemove="handleMouseMove" @mouseup="handleMouseUp"
@@ -13,8 +13,10 @@
                 @mousedown.stop="handleResizeStart($event, 'left')">
             </div>
 
-            <div class="island-core-content" :style="coreContentStyle" :class="{ 'resize-cursor-left': mouseNearEdge === 'left', 'resize-cursor-right': mouseNearEdge === 'right' }">
-                <div class="inner-wrapper">
+            <div class="island-core-content" :style="coreContentStyle"
+                :class="{ 'is-split-layout': isSplitMode, 'resize-cursor-left': mouseNearEdge === 'left', 'resize-cursor-right': mouseNearEdge === 'right' }">
+                <div class="left-capsule" :class="{ 'is-split': isSplitMode }">
+                    <div class="inner-wrapper">
                     <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
                         <div v-if="isMsgActive" class="msg-box" key="msg" @click="handleNotificationClick"
                             style="cursor: pointer;">
@@ -31,6 +33,7 @@
                         </div>
 
                         <div v-else-if="displaySysToast" class="system-toast-box" key="systoast">
+
                             <div v-if="sysToastType === 'app'" class="toast-icon app-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
                                     <circle cx="12" cy="12" r="10" stroke-width="2" stroke-linecap="round"
@@ -93,6 +96,17 @@
                                 </svg>
                             </div>
                             <div class="toast-text">{{ sysToastText }}</div>
+                        </div>
+
+                        <div v-else-if="showPomodoroText" class="pomodoro-text-box" key="pomodoro">
+                            <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor"
+                                stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <div class="pomodoro-info">
+                                <span class="pomodoro-time">{{ formattedIslandPomoTime }}</span>
+                            </div>
                         </div>
 
                         <div v-else-if="displayHardware" class="speed-box" key="hardware">
@@ -199,13 +213,33 @@
                 </div>
 
                 <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                    <div v-if="showSpectrumIndicator" class="audio-spectrum"
+                    <div v-if="isPomodoroExpanded" class="island-close-btn" @click.stop="closeIslandPomodoro" key="close-btn">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </div>
+
+                    <div v-else-if="showSpectrumIndicator" class="audio-spectrum"
                         :class="{ 'is-playing': isPlaying, 'expanded': isMusicExpanded }" key="spectrum">
                         <span class="bar" v-for="(val, index) in spectrumData" :key="index"
                             :style="{ transform: `scaleY(${val})` }"></span>
                     </div>
 
                     <div v-else :class="['status-dot', networkStatus]" key="dot"></div>
+                </transition>
+                </div>
+
+                <transition name="pop">
+                    <div class="right-circle" :style="coreContentStyle" v-if="isSplitMode"
+                        @click.stop="isPomodoroExpanded = true" style="cursor: pointer;">
+                        <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
                 </transition>
             </div>
 
@@ -232,11 +266,94 @@ import {
     NSD_PIN_TASKBAR, NSD_POSITION_LOCKED,
     NSD_MSG_MODE, NSD_ROTATION_MODE,
     NSD_ISLAND_WIDTH, NSD_ISLAND_POSITION, NSD_MSG_NOTIFY,
-    NSD_TARGET_PLAYER
+    NSD_TARGET_PLAYER, NSD_AUTO_HIDE_FS,
+    NSD_POMODORO_ACTIVE, NSD_POMODORO_VISIBLE,
+    NSD_POMODORO_TIME, NSD_POMODORO_STARTED
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
 const isMenuOpen = ref(false);
+
+// 番茄钟相关变量
+const isPomodoroActive = ref(localStorage.getItem(NSD_POMODORO_ACTIVE) === 'true');
+const isPomodoroVisible = ref(localStorage.getItem(NSD_POMODORO_VISIBLE) === 'true');
+const islandPomoTime = ref(Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500);
+const islandPomoTotalTime = ref(Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500);
+let pomoCountdownTimer: number | null = null;
+const isPomodoroExpanded = ref(false);
+
+// 全屏自动隐藏相关
+const isAutoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
+let wasVisibleBeforeFullscreen = false;
+let isHidingForFullscreen = false;
+
+// 番茄钟计算属性
+const formattedIslandPomoTime = computed(() => {
+    const m = Math.floor(islandPomoTime.value / 60).toString().padStart(2, '0');
+    const s = (islandPomoTime.value % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+});
+
+const showPomodoroText = computed(() => {
+    if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
+    if (isPomodoroVisible.value && !isMusicCtlEnabled.value) return true;
+    if (isPomodoroVisible.value && isMusicCtlEnabled.value && isPomodoroExpanded.value) return true;
+    if (isExpandedSize.value) return true;
+    return false;
+});
+
+const isSplitMode = computed(() => {
+    if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
+    return isPomodoroVisible.value && isMusicCtlEnabled.value && !isPomodoroExpanded.value;
+});
+
+// 番茄钟倒计时管理
+const startPomoCountdown = () => {
+    if (pomoCountdownTimer) clearInterval(pomoCountdownTimer);
+    if (islandPomoTime.value <= 0) { cleanUpPomoExit(); return; }
+    pomoCountdownTimer = window.setInterval(() => {
+        islandPomoTime.value--;
+        if (islandPomoTime.value <= 0) {
+            clearInterval(pomoCountdownTimer!);
+            pomoCountdownTimer = null;
+            cleanUpPomoExit();
+        }
+    }, 1000);
+};
+
+const stopPomoCountdown = () => {
+    if (pomoCountdownTimer) { clearInterval(pomoCountdownTimer); pomoCountdownTimer = null; }
+};
+
+const cleanUpPomoExit = () => {
+    isPomodoroActive.value = false;
+    isPomodoroVisible.value = false;
+    isPomodoroExpanded.value = false;
+    const defaultTime = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
+    islandPomoTime.value = defaultTime;
+    islandPomoTotalTime.value = defaultTime;
+    localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
+    localStorage.setItem(NSD_POMODORO_ACTIVE, 'false');
+    localStorage.setItem(NSD_POMODORO_STARTED, 'false');
+    showToast('专注结束，休息一下吧！', 'app');
+    emit('live-activity-toggle', { id: 'pomodoro', enabled: false, isReset: true });
+    if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+    }
+};
+
+const closeIslandPomodoro = () => {
+    isPomodoroExpanded.value = false;
+    if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+    }
+};
 
 // 自动隐藏相关变量
 const isMouseOver = ref(false);
@@ -451,20 +568,19 @@ const currentRotIndex = ref(0); // 0=网速 1=音乐, 2=硬件
 let rotationTimer: number | null = null;
 
 // 使用计算属性智能判断当前该显示�?
-const displaySpeed = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 0 : (!isMusicCtlEnabled.value && !isHardwareMonEnabled.value)));
-const displayMusic = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value));
+const displaySpeed = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && (isRotationEnabled.value ? currentRotIndex.value === 0 : (!isMusicCtlEnabled.value && !isHardwareMonEnabled.value)));
+const displayMusic = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && (isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value));
 const displayHardware = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 2 : isHardwareMonEnabled.value));
 
 // 辅助函数：获取当前状态应该拥有的默认大小
 const getBaseSize = () => {
-    // 网速岛 �?硬件监控尺寸统一缩小�?150x34
+    if (isPomodoroVisible.value) return { w: 250, h: 38 };
     if (displaySpeed.value || displayHardware.value) return { w: 150, h: 34 };
-    // 硬件、音乐（未展开）等其他状态恢复默认的 260x42
     return { w: 260, h: 42 };
 };
 
-// 监听内容切换，触发丝滑动画过�?
-watch([displaySpeed, displayMusic, displayHardware], () => {
+// 监听内容切换，触发丝滑动画�?
+watch([displaySpeed, displayMusic, displayHardware, showPomodoroText], () => {
     // 只有在没有被临时弹窗（消息、音乐展开）霸占时，才执行基础大小切换
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
@@ -671,7 +787,8 @@ const getPlayerName = () => {
         'qqmusic': 'QQ音乐', 
         'kugou': '酷狗音乐', 
         'echo': 'Echo Music',
-        'smtc': 'SMTC',  // Windows原生媒体控件模式
+        'lx-music': '洛雪音乐',
+        'smtc': 'SMTC',
     };
     return map[key] || '未知平台';
 };
@@ -1086,11 +1203,12 @@ const onLeave = (el: Element, done: () => void) => {
             done();
             // 等待 DOM 动画播放完成后再隐藏窗口
             getCurrentWindow().hide().catch(console.error);
-            // 只有用户主动关闭时才同步状态到控制台，自动隐藏不改变开关状�?
-            if (!isAutoHiding) {
+            // 只有用户主动关闭时才同步状态到控制台，自动隐藏/全屏隐藏不改变开关
+            if (!isAutoHiding && !isHidingForFullscreen) {
                 emit('island-status-sync', { visible: false });
             }
             isAutoHiding = false;
+            isHidingForFullscreen = false;
         }
     };
     requestAnimationFrame(animate);
@@ -1901,6 +2019,67 @@ onMounted(async () => {
         localStorage.setItem(NSD_AUTO_HIDE_DELAY, String(autoHideDelay.value));
     });
 
+    // 监听全屏自动隐藏设置
+    await listen<{ enabled: boolean }>('control-autohide-fs', (event) => {
+        isAutoHideFullscreen.value = event.payload.enabled;
+    });
+
+    // 监听 Rust 发来的全屏状态变化
+    await listen<boolean>('fullscreen-changed', async (event) => {
+        const isFullscreen = event.payload;
+        if (!isAutoHideFullscreen.value) return;
+        if (isFullscreen) {
+            if (isIslandVisible.value) {
+                wasVisibleBeforeFullscreen = true;
+                isHidingForFullscreen = true;
+                isIslandVisible.value = false;
+            }
+        } else {
+            if (wasVisibleBeforeFullscreen) {
+                await getCurrentWindow().show();
+                setTimeout(() => {
+                    isIslandVisible.value = true;
+                    emit('island-status-sync', { visible: true });
+                }, 40);
+                wasVisibleBeforeFullscreen = false;
+            }
+        }
+    });
+
+    // 监听实时活动控制台指令 (番茄钟)
+    await listen<{ id: string, enabled: boolean, time?: number, isReset?: boolean }>('live-activity-toggle', async (event) => {
+        if (event.payload.id === 'pomodoro') {
+            isPomodoroActive.value = event.payload.enabled;
+            if (event.payload.time !== undefined) {
+                islandPomoTime.value = event.payload.time;
+                islandPomoTotalTime.value = event.payload.time;
+            }
+            if (event.payload.enabled) {
+                isPomodoroVisible.value = true;
+                localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
+                startPomoCountdown();
+            } else {
+                stopPomoCountdown();
+                if (event.payload.isReset) {
+                    isPomodoroVisible.value = false;
+                    isPomodoroExpanded.value = false;
+                    localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
+                } else {
+                    if (!event.payload.isReset && localStorage.getItem(NSD_POMODORO_STARTED) === 'false') {
+                        islandPomoTime.value = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
+                        islandPomoTotalTime.value = islandPomoTime.value;
+                    }
+                }
+            }
+        }
+        if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+            const { h } = getBaseSize();
+            const savedWidth = restoreIslandWidth();
+            const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+            animateIslandSize(targetWidth, h);
+        }
+    });
+
     // 监听自动折叠设置
     await listen<{ enabled: boolean, delay: number }>('control-auto-collapse', (event) => {
         isAutoCollapseEnabled.value = event.payload.enabled;
@@ -2105,6 +2284,11 @@ onMounted(async () => {
     setTimeout(() => {
         calculateScroll();
     }, 700);
+
+    // 初始化检测：番茄钟原本就是运行状态，直接开跑倒计时
+    if (isPomodoroActive.value) {
+        startPomoCountdown();
+    }
 });
 
 onUnmounted(() => {
@@ -2118,6 +2302,7 @@ onUnmounted(() => {
     clearInterval(musicTimer);
     clearInterval(notifyTimer);
     stopProgressTimer();
+    if (pomoCountdownTimer) clearInterval(pomoCountdownTimer);
     // 组件卸载时关闭频谱捕获，避免后端空跑
     invoke('set_spectrum_active', { active: false }).catch(() => {});
     if (speedCycleTimer) clearInterval(speedCycleTimer);
@@ -3030,5 +3215,109 @@ onUnmounted(() => {
 
 .island-core-content.resize-cursor-right {
     cursor: e-resize;
+}
+
+/* 实时活动：分离式灵动岛布局 */
+.island-core-content.is-split-layout {
+    padding: 0 !important;
+    background: transparent !important;
+}
+
+/* 左侧主胶囊 */
+.left-capsule {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 0 14px;
+    position: relative;
+    overflow: hidden;
+    transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.left-capsule.is-split {
+    width: calc(100% - 44px);
+}
+
+/* 右侧独立实时小球 */
+.right-circle {
+    position: absolute;
+    right: 0;
+    width: 38px;
+    height: 38px;
+    border-radius: 50% !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+.pop-enter-active,
+.pop-leave-active {
+    transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.pop-enter-from,
+.pop-leave-to {
+    opacity: 0;
+    transform: scale(0.4) translateX(-30px);
+}
+
+/* 番茄钟文本排版 */
+.pomodoro-text-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: 100%;
+    transform: translateX(-5px) !important;
+}
+
+.pomodoro-info {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+}
+
+.pomodoro-time {
+    font-size: 18px;
+    font-weight: bold;
+    color: #ff4757;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.5px;
+    transform: translateY(-0.5px);
+}
+
+.pomodoro-svg {
+    width: 24px;
+    height: 24px;
+    color: #ff4757;
+}
+
+/* 实时活动全岛关闭按钮 */
+.island-close-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border-radius: 50%;
+    z-index: 10;
+    transform: translateX(8px) !important;
+}
+
+.island-close-btn:hover {
+    color: #ff4757;
+    background-color: rgba(255, 71, 87, 0.15);
+    transform: scale(1.15);
+}
+
+.island-close-btn svg {
+    width: 20px;
+    height: 20px;
 }
 </style>
