@@ -36,6 +36,9 @@ export const NSD_POMODORO_ACTIVE = 'nsd_pomodoro_active';
 export const NSD_POMODORO_STARTED = 'nsd_pomodoro_started';
 export const NSD_POMODORO_VISIBLE = 'nsd_pomodoro_visible';
 export const NSD_POMODORO_TIME = 'nsd_pomodoro_time';
+export const NSD_POMODORO_FOCUS_SECS = 'nsd_pomodoro_focus_secs';
+export const NSD_POMODORO_BREAK_SECS = 'nsd_pomodoro_break_secs';
+export const NSD_POMODORO_CYCLES = 'nsd_pomodoro_cycles';
 
 // 控制台
 export const NSD_THEME_MODE = 'nsd_theme_mode';
