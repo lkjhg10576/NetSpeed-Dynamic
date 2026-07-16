@@ -55,7 +55,7 @@
                                 <button class="pomo-btn" @click="handlePomoStop">停止</button>
                             </template>
                         </div>
-                        <label v-else class="custom-switch" @click.stop>
+                        <label v-else-if="item.id !== 'countdown'" class="custom-switch" @click.stop>
                             <input type="checkbox" v-model="item.enabled" :disabled="item.disable">
                             <span class="slider"></span>
                         </label>
@@ -446,14 +446,17 @@ const checkScroll = () => {
 };
 
 const scrollToLeft = () => {
-    if (activities.value.length > 0) {
-        activateAndCenter(activities.value[0].id);
+    const idx = activities.value.findIndex(item => item.id === activeId.value);
+    if (idx > 0) {
+        activateAndCenter(activities.value[idx - 1].id);
     }
 };
 
 const scrollToRight = () => {
-    if (activities.value.length > 0) {
-        activateAndCenter(activities.value[activities.value.length - 1].id);
+    const idx = activities.value.findIndex(item => item.id === activeId.value);
+    const last = activities.value.length - 1;
+    if (idx >= 0 && idx < last) {
+        activateAndCenter(activities.value[idx + 1].id);
     }
 };
 
