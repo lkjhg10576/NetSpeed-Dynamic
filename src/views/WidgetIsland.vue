@@ -1971,6 +1971,14 @@ onMounted(async () => {
 
     window.addEventListener('blur', collapseMusic);
 
+    // force_window_topmost：窗口 blur 事件驱动置顶（替代原 speedTimer 中每 800ms 轮询）
+    const handleForceTopmost = () => {
+        if (isPinnedToTaskbar.value && isIslandVisible.value && !isMenuOpen.value && !isCustomDragging) {
+            invoke('force_window_topmost').catch(() => { });
+        }
+    };
+    window.addEventListener('blur', handleForceTopmost);
+
     document.addEventListener('contextmenu', (e) => {
         e.preventDefault();
     }, { capture: true }); // 使用捕获阶段，确保先于 Tauri 底层拦截
@@ -2269,17 +2277,13 @@ onMounted(async () => {
     }, 5000);
 
     // 在你原有的每秒刷新定时器中，顺带执行音乐同步
-    // 1. 高频定时器：专门负责网速和硬件监控（每 500ms ~ 1000ms 刷新一次）
+    // 1. 高频定时器：专门负责网速和硬件监控（每 1500ms 刷新一次）
     speedTimer = setInterval(async () => {
-        // 强置顶逻辑（拖拽中跳过，避免与 setPosition 冲突�?
-        if (isPinnedToTaskbar.value && isIslandVisible.value && !isMenuOpen.value && !isCustomDragging) {
-            invoke('force_window_topmost').catch(() => { });
-        }
-
-        // 刷新网�?
+        // force_window_topmost 已改为 blur 事件驱动，不再定时调用
+        // 刷新网速
         fetchSpeedStats();
 
-        // 刷新硬件状�?
+        // 刷新硬件状态
         if (isHardwareMonEnabled.value || isRotationEnabled.value) {
             try {
                 const [cpu, usedMem, totalMem] = await invoke<[number, number, number]>('get_hardware_stats');
@@ -2291,18 +2295,18 @@ onMounted(async () => {
                 console.error('获取硬件信息失败:', err);
             }
         }
-    }, 800) as unknown as number;
+    }, 1500) as unknown as number;
 
 
-    // 2. 中频定时器：专门负责音乐状态同步（�?2000ms 刷新一次即可）
+    // 2. 中频定时器：专门负责音乐状态同步（每 3000ms 刷新一次即可）
     musicTimer = setInterval(() => {
         if (isMusicCtlEnabled.value || isRotationEnabled.value) {
             syncMusicStatus();
         }
-    }, 2000);
+    }, 3000);
 
 
-    // 3. 低频定时器：专门轮询系统通知（通知不需要抢时间�?.5秒换来极低的资源占用�?
+    // 3. 低频定时器：专门轮询系统通知（通知不需要抢时间，5秒换来极低的资源占用）
     notifyTimer = setInterval(async () => {
         const enabled = localStorage.getItem(NSD_MSG_NOTIFY) === 'true';
         if (!enabled) return;
@@ -2352,10 +2356,10 @@ onMounted(async () => {
         } catch (err) {
             console.error(err);
         }
-    }, 2500);
+    }, 5000);
 
-    // 调大Ping间隔：从2.5秒调大到5.5�?
-    pingTimer = setInterval(checkNetworkLatency, 5500) as unknown as number;
+    // 调大Ping间隔：从5.5秒调大到10秒
+    pingTimer = setInterval(checkNetworkLatency, 10000) as unknown as number;
 
     // 监听控制台发来的显隐调度指令
     await listen<{ show: boolean }>('control-island-visibility', async (event) => {
@@ -2417,6 +2421,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
     window.removeEventListener('blur', collapseMusic);
+    window.removeEventListener('blur', handleForceTopmost);
     // 清理自定义横向拖拽的文档级监听器
     document.removeEventListener('mousemove', handleCustomDragMove);
     document.removeEventListener('mouseup', handleCustomDragEnd);
