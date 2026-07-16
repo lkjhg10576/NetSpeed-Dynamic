@@ -40,11 +40,20 @@
                     <div class="hero-top-row">
                         <div class="pro-icon" v-html="item.icon"></div>
                         <div v-if="item.id === 'pomodoro'" class="pomodoro-controls" @click.stop>
-                            <button class="pomo-btn reset-btn" @click="handleResetBtn">重置</button>
-                            <button class="pomo-btn toggle-btn" :class="{ 'is-running': item.enabled }"
-                                @click="handleToggleBtn(item)">
-                                {{ item.enabled ? '暂停' : (isStarted ? '继续' : '启动') }}
+                            <button class="pomo-btn reset-btn" :disabled="isPomoRunning"
+                                @click="pomoStep = 0; pomoFocusM = 25; pomoFocusS = 0; pomoBreakM = 5; pomoBreakS = 0; pomoCycles = 4">重置</button>
+                            <button v-if="!isPomoRunning" class="pomo-btn toggle-btn"
+                                :class="{ 'disabled': pomoStep < 3 && !pomoConfigDone }"
+                                :disabled="pomoStep < 3 && !pomoConfigDone"
+                                @click="handlePomoStart">
+                                {{ pomoConfigDone ? '重新开始' : '启动' }}
                             </button>
+                            <template v-else>
+                                <button class="pomo-btn" @click="handlePomoPauseResume">
+                                    {{ isPomoPaused ? '继续' : '暂停' }}
+                                </button>
+                                <button class="pomo-btn" @click="handlePomoStop">停止</button>
+                            </template>
                         </div>
                         <label v-else class="custom-switch" @click.stop>
                             <input type="checkbox" v-model="item.enabled" :disabled="item.disable">
@@ -61,35 +70,111 @@
                     <transition name="fade-up" appear>
                         <div class="body-content">
                             <template v-if="item.id === 'pomodoro'">
-                                <div class="pro-setting-item mt-10"
-                                    style="flex-direction: column; align-items: flex-start; gap: 12px; border-bottom: none; padding-bottom: 0;">
-                                    <div class="pro-meta">
-                                        <span class="pro-title">专注时长</span>
+                                <!-- 运行中状态显示 -->
+                                <div v-if="isPomoRunning" class="pomo-running-state">
+                                    <div class="pomo-phase-label" :class="pomoRunningPhase">
+                                        {{ pomoRunningPhase === 'focus' ? '⏰ 专注中' : '☕ 休息中' }}
+                                    </div>
+                                    <div class="pomo-running-time" :class="pomoRunningPhase">
+                                        {{ pomoFormattedRemaining }}
+                                    </div>
+                                    <div class="pomo-running-meta">
+                                        <span>第 {{ pomoTotalCycles - pomoRemainingCycles + 1 }} / {{ pomoTotalCycles }} 轮</span>
+                                        <span v-if="isPomoPaused" class="pomo-paused-tag">已暂停</span>
+                                    </div>
+                                </div>
+
+                                <!-- 三步设置向导（仅在不运行时显示） -->
+                                <div v-else class="pomo-setup-wizard">
+                                    <!-- 步骤指示器 -->
+                                    <div class="pomo-step-indicator">
+                                        <span v-for="s in 3" :key="s" class="step-dot"
+                                            :class="{ active: pomoStep === s - 1, done: pomoStep > s - 1 }">
+                                            <template v-if="pomoStep > s - 1">✓</template>
+                                            <template v-else>{{ s }}</template>
+                                        </span>
+                                        <span class="step-dot" :class="{ active: pomoConfigDone, done: pomoConfigDone }">
+                                            {{ pomoConfigDone ? '✓' : '▶' }}
+                                        </span>
                                     </div>
 
-                                    <div
-                                        style="width: 100%; display: flex; justify-content: space-between; align-items: center;">
-                                        <div v-if="!isEditingPomodoro" class="time-display"
-                                            style="font-size: 28px; font-weight: 800; color: var(--accent-color); padding: 0; text-align: left;">
-                                            {{ formattedPomodoroTime }}
+                                    <!-- Step 1: 专注时间 -->
+                                    <div v-if="pomoStep === 0" class="pomo-step-content">
+                                        <div class="step-label">⏰ 单次专注时间</div>
+                                        <div class="step-input-row">
+                                            <div class="step-input-group">
+                                                <input type="number" v-model.number="pomoFocusM" class="step-input"
+                                                    min="0" max="999" />
+                                                <span class="step-unit">分</span>
+                                            </div>
+                                            <div class="step-input-group">
+                                                <input type="number" v-model.number="pomoFocusS" class="step-input"
+                                                    min="0" max="59" />
+                                                <span class="step-unit">秒</span>
+                                            </div>
                                         </div>
+                                        <div class="step-summary">专注 {{ pomoFocusM }} 分 {{ pomoFocusS }} 秒</div>
+                                        <button class="step-next-btn" @click="pomoStep = 1"
+                                            :disabled="pomoFocusM === 0 && pomoFocusS === 0">
+                                            下一步 →
+                                        </button>
+                                    </div>
 
-                                        <div v-else class="time-input-group" style="padding: 0; gap: 6px;">
-                                            <input type="text" v-model="inputH" class="time-input"
-                                                style="width: 48px; font-size: 16px; padding: 4px;" placeholder="时" />
-                                            <span class="time-separator" style="font-size: 18px;">:</span>
-                                            <input type="text" v-model="inputM" class="time-input"
-                                                style="width: 48px; font-size: 16px; padding: 4px;" placeholder="分" />
-                                            <span class="time-separator" style="font-size: 18px;">:</span>
-                                            <input type="text" v-model="inputS" class="time-input"
-                                                style="width: 48px; font-size: 16px; padding: 4px;" placeholder="秒" />
+                                    <!-- Step 2: 休息时间 -->
+                                    <div v-if="pomoStep === 1" class="pomo-step-content">
+                                        <div class="step-label">☕ 单次休息时间</div>
+                                        <div class="step-input-row">
+                                            <div class="step-input-group">
+                                                <input type="number" v-model.number="pomoBreakM" class="step-input"
+                                                    min="0" max="999" />
+                                                <span class="step-unit">分</span>
+                                            </div>
+                                            <div class="step-input-group">
+                                                <input type="number" v-model.number="pomoBreakS" class="step-input"
+                                                    min="0" max="59" />
+                                                <span class="step-unit">秒</span>
+                                            </div>
                                         </div>
+                                        <div class="step-summary">休息 {{ pomoBreakM }} 分 {{ pomoBreakS }} 秒</div>
+                                        <div class="step-nav-row">
+                                            <button class="step-back-btn" @click="pomoStep = 0">← 上一步</button>
+                                            <button class="step-next-btn" @click="pomoStep = 2"
+                                                :disabled="pomoBreakM === 0 && pomoBreakS === 0">
+                                                下一步 →
+                                            </button>
+                                        </div>
+                                    </div>
 
-                                        <button v-if="!isEditingPomodoro" class="time-edit-btn"
-                                            style="padding: 4px 12px;" :disabled="isStarted"
-                                            @click="startEditTime">设置</button>
-                                        <button v-else class="time-edit-btn" style="padding: 4px 12px;"
-                                            @click="saveTime">保存</button>
+                                    <!-- Step 3: 循环轮数 -->
+                                    <div v-if="pomoStep === 2" class="pomo-step-content">
+                                        <div class="step-label">🔄 循环轮数</div>
+                                        <div class="step-input-row" style="justify-content: center;">
+                                            <div class="step-input-group" style="width: 120px;">
+                                                <input type="number" v-model.number="pomoCycles" class="step-input"
+                                                    min="1" max="999" />
+                                                <span class="step-unit">轮</span>
+                                            </div>
+                                        </div>
+                                        <div class="step-summary">共 {{ pomoCycles }} 轮（专注 + 休息）</div>
+                                        <div class="step-nav-row">
+                                            <button class="step-back-btn" @click="pomoStep = 1">← 上一步</button>
+                                            <button class="step-start-btn" @click="handlePomoStart"
+                                                :disabled="pomoCycles < 1">
+                                                🚀 开始番茄钟
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- 配置已完成的状态 -->
+                                    <div v-if="pomoConfigDone && !isPomoRunning" class="pomo-ready-state">
+                                        <div class="pomo-ready-summary">
+                                            专注 {{ pomoFocusM }}:{{ String(pomoFocusS).padStart(2, '0') }} |
+                                            休息 {{ pomoBreakM }}:{{ String(pomoBreakS).padStart(2, '0') }} |
+                                            {{ pomoCycles }} 轮
+                                        </div>
+                                        <div class="pomo-ready-actions">
+                                            <button class="step-back-btn" @click="pomoStep = 0">修改参数</button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -121,12 +206,92 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick, computed } from 'vue';
-import { emit, listen } from '@tauri-apps/api/event';
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
+import { listen } from '@tauri-apps/api/event';
+import { invoke } from '@tauri-apps/api/core';
 import {
-    NSD_POMODORO_ACTIVE, NSD_POMODORO_STARTED,
-    NSD_POMODORO_VISIBLE, NSD_POMODORO_TIME
+    NSD_POMODORO_FOCUS_SECS,
+    NSD_POMODORO_BREAK_SECS,
+    NSD_POMODORO_CYCLES,
 } from '../constants/storageKeys';
+
+// ===== 三步设置状态 =====
+const pomoStep = ref(0); // 0=专注时间, 1=休息时间, 2=循环轮数
+const pomoFocusM = ref(Number(localStorage.getItem(NSD_POMODORO_FOCUS_SECS + '_m')) || 25);
+const pomoFocusS = ref(Number(localStorage.getItem(NSD_POMODORO_FOCUS_SECS + '_s')) || 0);
+const pomoBreakM = ref(Number(localStorage.getItem(NSD_POMODORO_BREAK_SECS + '_m')) || 5);
+const pomoBreakS = ref(Number(localStorage.getItem(NSD_POMODORO_BREAK_SECS + '_s')) || 0);
+const pomoCycles = ref(Number(localStorage.getItem(NSD_POMODORO_CYCLES)) || 4);
+const pomoConfigDone = ref(false);
+
+// ===== 运行中状态（由后端事件驱动） =====
+const isPomoRunning = ref(false);
+const isPomoPaused = ref(false);
+const pomoRunningPhase = ref<'focus' | 'break'>('focus');
+const pomoRemainingSecs = ref(0);
+const pomoRemainingCycles = ref(4);
+const pomoTotalCycles = ref(4);
+
+const pomoFormattedRemaining = computed(() => {
+    const t = pomoRemainingSecs.value;
+    const m = Math.floor(t / 60).toString().padStart(2, '0');
+    const s = (t % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+});
+
+// ===== 持久化三步配置 =====
+function savePomoConfig() {
+    localStorage.setItem(NSD_POMODORO_FOCUS_SECS + '_m', pomoFocusM.value.toString());
+    localStorage.setItem(NSD_POMODORO_FOCUS_SECS + '_s', pomoFocusS.value.toString());
+    localStorage.setItem(NSD_POMODORO_BREAK_SECS + '_m', pomoBreakM.value.toString());
+    localStorage.setItem(NSD_POMODORO_BREAK_SECS + '_s', pomoBreakS.value.toString());
+    localStorage.setItem(NSD_POMODORO_CYCLES, pomoCycles.value.toString());
+}
+
+function getFocusSecs(): number {
+    return pomoFocusM.value * 60 + pomoFocusS.value;
+}
+
+function getBreakSecs(): number {
+    return pomoBreakM.value * 60 + pomoBreakS.value;
+}
+
+// ===== 操作处理 =====
+async function handlePomoStart() {
+    const focusSecs = getFocusSecs();
+    const breakSecs = getBreakSecs();
+    if (focusSecs < 1 || breakSecs < 1 || pomoCycles.value < 1) return;
+    savePomoConfig();
+    pomoConfigDone.value = true;
+    await invoke('start_pomodoro', {
+        focusSecs,
+        breakSecs,
+        cycles: pomoCycles.value,
+    });
+    // 立即更新本地状态，等待后端 tick 来确认
+    isPomoRunning.value = true;
+    isPomoPaused.value = false;
+    pomoRunningPhase.value = 'focus';
+    pomoRemainingSecs.value = focusSecs;
+    pomoRemainingCycles.value = pomoCycles.value;
+    pomoTotalCycles.value = pomoCycles.value;
+}
+
+async function handlePomoPauseResume() {
+    if (isPomoPaused.value) {
+        await invoke('resume_pomodoro');
+        isPomoPaused.value = false;
+    } else {
+        await invoke('pause_pomodoro');
+        isPomoPaused.value = true;
+    }
+}
+
+async function handlePomoStop() {
+    await invoke('stop_pomodoro');
+    isPomoRunning.value = false;
+    isPomoPaused.value = false;
+}
 
 const activities = ref([
     {
@@ -135,7 +300,7 @@ const activities = ref([
         title: '专注番茄钟',
         desc: '沉浸工作时间管理',
         accent: '#ff4757',
-        enabled: localStorage.getItem(NSD_POMODORO_ACTIVE) === 'true',
+        enabled: false,
         disable: false
     },
     {
@@ -157,105 +322,6 @@ const activities = ref([
         disable: true
     },
 ]);
-
-// 启动或暂停番茄钟
-const handleToggleBtn = async (item: any) => {
-    if (item.id === 'pomodoro') {
-        if (isEditingPomodoro.value) {
-            saveTime();
-        }
-
-        const nextState = !item.enabled;
-        item.enabled = nextState;
-
-        if (nextState) {
-            isStarted.value = true;
-            localStorage.setItem(NSD_POMODORO_STARTED, 'true');
-            localStorage.setItem(NSD_POMODORO_ACTIVE, 'true');
-            localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
-        } else {
-            localStorage.setItem(NSD_POMODORO_ACTIVE, 'false');
-        }
-
-        await emit('live-activity-toggle', {
-            id: item.id,
-            enabled: nextState
-        });
-    } else {
-        item.enabled = !item.enabled;
-        await emit('live-activity-toggle', {
-            id: item.id,
-            enabled: item.enabled
-        });
-    }
-};
-
-// 重置番茄钟
-const handleResetBtn = async () => {
-    const pomoItem = activities.value.find(a => a.id === 'pomodoro');
-    if (pomoItem) {
-        pomoItem.enabled = false;
-        isStarted.value = false;
-
-        localStorage.setItem(NSD_POMODORO_ACTIVE, 'false');
-        localStorage.setItem(NSD_POMODORO_STARTED, 'false');
-        localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
-
-        const savedTime = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
-        pomodoroTime.value = savedTime;
-
-        await emit('live-activity-toggle', {
-            id: 'pomodoro',
-            enabled: false,
-            time: savedTime,
-            isReset: true
-        });
-    }
-};
-
-const pomodoroTime = ref(Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500);
-const isEditingPomodoro = ref(false);
-const isStarted = ref(localStorage.getItem(NSD_POMODORO_STARTED) === 'true');
-
-const inputH = ref('00');
-const inputM = ref('25');
-const inputS = ref('00');
-
-const formattedPomodoroTime = computed(() => {
-    const h = Math.floor(pomodoroTime.value / 3600).toString().padStart(2, '0');
-    const m = Math.floor((pomodoroTime.value % 3600) / 60).toString().padStart(2, '0');
-    const s = (pomodoroTime.value % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
-});
-
-const filterTimeInput = (val: string) => {
-    const onlyNum = val.replace(/[^\d]/g, '');
-    return onlyNum.slice(0, 3);
-};
-
-watch(inputH, (newVal) => { inputH.value = filterTimeInput(newVal); });
-watch(inputM, (newVal) => { inputM.value = filterTimeInput(newVal); });
-watch(inputS, (newVal) => { inputS.value = filterTimeInput(newVal); });
-
-const startEditTime = () => {
-    inputH.value = Math.floor(pomodoroTime.value / 3600).toString();
-    inputM.value = Math.floor((pomodoroTime.value % 3600) / 60).toString();
-    inputS.value = (pomodoroTime.value % 60).toString();
-    isEditingPomodoro.value = true;
-};
-
-const saveTime = () => {
-    const h = Number(inputH.value) || 0;
-    const m = Number(inputM.value) || 0;
-    const s = Number(inputS.value) || 0;
-    const totalSeconds = h * 3600 + m * 60 + s;
-    pomodoroTime.value = totalSeconds;
-    localStorage.setItem(NSD_POMODORO_TIME, totalSeconds.toString());
-    isEditingPomodoro.value = false;
-    isStarted.value = false;
-    localStorage.setItem(NSD_POMODORO_STARTED, 'false');
-    emit('live-activity-toggle', { id: 'pomodoro', enabled: false, time: totalSeconds });
-};
 
 const activeId = ref('pomodoro');
 const trackRef = ref<HTMLElement | null>(null);
@@ -314,21 +380,43 @@ const handleCardClick = (id: string) => {
 };
 
 onMounted(async () => {
-    await listen<{ id: string, enabled: boolean, isReset?: boolean }>('live-activity-toggle', (event) => {
-        if (event.payload.id === 'pomodoro' && event.payload.isReset) {
-            const pomoItem = activities.value.find(a => a.id === 'pomodoro');
-            if (pomoItem) {
-                pomoItem.enabled = false;
-            }
-
-            isStarted.value = false;
-            localStorage.setItem(NSD_POMODORO_ACTIVE, 'false');
-            localStorage.setItem(NSD_POMODORO_STARTED, 'false');
-            localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
-
-            pomodoroTime.value = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
+    // 监听后端番茄钟 tick 事件
+    await listen<any>('pomodoro-tick', (event) => {
+        const payload = event.payload;
+        if (payload.active === false) {
+            isPomoRunning.value = false;
+            isPomoPaused.value = false;
+            return;
         }
+        isPomoRunning.value = true;
+        isPomoPaused.value = payload.paused || false;
+        pomoRunningPhase.value = payload.phase;
+        pomoRemainingSecs.value = payload.remaining_secs;
+        pomoRemainingCycles.value = payload.remaining_cycles;
+        pomoTotalCycles.value = payload.total_cycles || pomoTotalCycles.value;
     });
+
+    // 监听番茄钟完成事件
+    await listen<any>('pomodoro-complete', () => {
+        isPomoRunning.value = false;
+        isPomoPaused.value = false;
+    });
+
+    // 尝试恢复运行中状态
+    try {
+        const state: any = await invoke('get_pomodoro_state');
+        if (state.active) {
+            isPomoRunning.value = true;
+            isPomoPaused.value = state.paused || false;
+            pomoRunningPhase.value = state.phase;
+            pomoRemainingSecs.value = state.remaining_secs;
+            pomoRemainingCycles.value = state.remaining_cycles;
+            pomoTotalCycles.value = state.total_cycles;
+            pomoConfigDone.value = true;
+        }
+    } catch (_e) {
+        // 后端 pomodoro 模块不存在或未初始化，忽略
+    }
 
     nextTick(() => { checkScroll(); });
     window.addEventListener('resize', checkScroll);
@@ -796,89 +884,6 @@ onUnmounted(() => {
     opacity: 0;
 }
 
-/* 番茄钟时间设置 */
-.time-edit-btn {
-    background: transparent;
-    border: 1px solid var(--control-border);
-    color: var(--item-title-color);
-    border-radius: 6px;
-    padding: 2px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    outline: none;
-}
-
-.time-edit-btn:hover {
-    background: var(--control-border);
-}
-
-.time-edit-btn:disabled {
-    cursor: not-allowed;
-    opacity: 0.5;
-    background: transparent;
-    border-color: var(--control-border);
-    color: var(--item-desc-color);
-}
-
-.time-display {
-    font-size: 22px;
-    font-weight: 700;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    color: var(--item-title-color);
-    text-align: center;
-    letter-spacing: 2px;
-    padding: 4px 0;
-}
-
-.time-input-group {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 4px 0;
-}
-
-.time-input {
-    width: 44px;
-    background: rgba(0, 0, 0, 0.03);
-    border: 1px solid var(--control-border);
-    border-radius: 8px;
-    padding: 6px 4px;
-    text-align: center;
-    font-size: 14px;
-    font-weight: bold;
-    color: var(--h1-color);
-    outline: none;
-    transition: all 0.2s ease;
-}
-
-.time-input:focus {
-    border-color: var(--accent-color);
-    background: transparent;
-}
-
-:global(.dark-theme) .time-input {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.time-separator {
-    font-weight: bold;
-    color: var(--item-title-color);
-}
-
-.time-input::-webkit-outer-spin-button,
-.time-input::-webkit-inner-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-}
-
-.time-input[type=number] {
-    -moz-appearance: textfield;
-    appearance: textfield;
-}
-
 /* 番茄钟按钮 */
 .pomodoro-controls {
     display: flex;
@@ -903,19 +908,273 @@ onUnmounted(() => {
     background: var(--control-border);
 }
 
-.toggle-btn:not(.is-running) {
+.pomo-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.toggle-btn:not(.disabled) {
     background: var(--accent-color, #ff4757);
     border-color: var(--accent-color, #ff4757);
     color: #fff;
 }
 
-.toggle-btn:not(.is-running):hover {
+.toggle-btn:not(.disabled):hover {
     opacity: 0.9;
 }
 
-.toggle-btn.is-running {
+.toggle-btn.disabled {
     background: var(--card-bg);
     border-color: var(--control-border);
+    color: var(--item-desc-color);
+}
+
+/* ===== 三步设置向导样式 ===== */
+.pomo-setup-wizard {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-top: 10px;
+}
+
+.pomo-step-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.step-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    background: var(--control-border);
+    color: var(--item-desc-color);
+    transition: all 0.3s ease;
+}
+
+.step-dot.active {
+    background: var(--accent-color, #ff4757);
+    color: #fff;
+}
+
+.step-dot.done {
+    background: #10b981;
+    color: #fff;
+}
+
+.step-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--h1-color);
+    text-align: center;
+}
+
+.step-input-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+}
+
+.step-input-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.step-input {
+    width: 60px;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    padding: 8px 6px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--h1-color);
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.step-input:focus {
+    border-color: var(--accent-color, #ff4757);
+    background: transparent;
+}
+
+:global(.dark-theme) .step-input {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.step-input::-webkit-outer-spin-button,
+.step-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.step-input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.step-unit {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--item-desc-color);
+}
+
+.step-summary {
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--subtitle-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.step-nav-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.step-next-btn,
+.step-start-btn {
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    border: none;
+    background: var(--accent-color, #ff4757);
+    color: #fff;
+    transition: all 0.2s ease;
+    outline: none;
+    align-self: center;
+    width: fit-content;
+}
+
+.step-next-btn:hover,
+.step-start-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.step-next-btn:disabled,
+.step-start-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    transform: none;
+}
+
+.step-back-btn {
+    padding: 8px 16px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid var(--control-border);
+    background: transparent;
     color: var(--item-title-color);
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.step-back-btn:hover {
+    background: var(--control-border);
+}
+
+.pomo-step-content {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* ===== 运行中状态样式 ===== */
+.pomo-running-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 0;
+}
+
+.pomo-phase-label {
+    font-size: 14px;
+    font-weight: 700;
+    padding: 4px 14px;
+    border-radius: 100px;
+    border: 1px solid;
+}
+
+.pomo-phase-label.focus {
+    color: #ff4757;
+    border-color: rgba(255, 71, 87, 0.3);
+    background: rgba(255, 71, 87, 0.08);
+}
+
+.pomo-phase-label.break {
+    color: #2196f3;
+    border-color: rgba(33, 150, 243, 0.3);
+    background: rgba(33, 150, 243, 0.08);
+}
+
+.pomo-running-time {
+    font-size: 32px;
+    font-weight: 900;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    letter-spacing: 3px;
+}
+
+.pomo-running-time.focus {
+    color: #ff4757;
+}
+
+.pomo-running-time.break {
+    color: #2196f3;
+}
+
+.pomo-running-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--subtitle-color);
+}
+
+.pomo-paused-tag {
+    background: rgba(255, 193, 7, 0.15);
+    color: #f59e0b;
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.pomo-ready-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+}
+
+.pomo-ready-summary {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--subtitle-color);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    text-align: center;
+}
+
+.pomo-ready-actions {
+    display: flex;
+    gap: 8px;
 }
 </style>

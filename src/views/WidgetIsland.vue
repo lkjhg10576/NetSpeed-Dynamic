@@ -99,13 +99,15 @@
                         </div>
 
                         <div v-else-if="showPomodoroText" class="pomodoro-text-box" key="pomodoro">
-                            <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor"
+                            <svg viewBox="0 0 24 24" class="pomodoro-svg"
+                                :class="pomodoroPhaseClass" fill="none" stroke="currentColor"
                                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="10"></circle>
                                 <polyline points="12 6 12 12 16 14"></polyline>
                             </svg>
                             <div class="pomodoro-info">
-                                <span class="pomodoro-time">{{ formattedIslandPomoTime }}</span>
+                                <span class="pomodoro-time" :class="pomodoroPhaseClass">{{ formattedIslandPomoTime }}</span>
+                                <span class="pomodoro-cycle-badge" v-if="pomodoroRemainingCycles > 0">{{ pomodoroRemainingCycles }}</span>
                             </div>
                         </div>
 
@@ -213,7 +215,7 @@
                 </div>
 
                 <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                    <div v-if="isPomodoroExpanded" class="island-close-btn" @click.stop="closeIslandPomodoro" key="close-btn">
+                    <div v-if="isPomodoroExpanded" class="island-close-btn" @click.stop="isPomodoroExpanded = false; handlePomoClose()" key="close-btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -267,19 +269,17 @@ import {
     NSD_MSG_MODE, NSD_ROTATION_MODE,
     NSD_ISLAND_WIDTH, NSD_ISLAND_POSITION, NSD_MSG_NOTIFY,
     NSD_TARGET_PLAYER, NSD_AUTO_HIDE_FS,
-    NSD_POMODORO_ACTIVE, NSD_POMODORO_VISIBLE,
-    NSD_POMODORO_TIME, NSD_POMODORO_STARTED
+    NSD_POMODORO_VISIBLE,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
 const isMenuOpen = ref(false);
 
-// 番茄钟相关变量
-const isPomodoroActive = ref(localStorage.getItem(NSD_POMODORO_ACTIVE) === 'true');
-const isPomodoroVisible = ref(localStorage.getItem(NSD_POMODORO_VISIBLE) === 'true');
-const islandPomoTime = ref(Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500);
-const islandPomoTotalTime = ref(Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500);
-let pomoCountdownTimer: number | null = null;
+// 番茄钟相关变量（由后端 pomodoro-tick 事件驱动）
+const isPomodoroVisible = ref(false);
+const pomodoroRemainingSecs = ref(0);
+const pomodoroPhase = ref<'focus' | 'break'>('focus');
+const pomodoroRemainingCycles = ref(0);
 const isPomodoroExpanded = ref(false);
 
 // 全屏自动隐藏相关
@@ -289,9 +289,13 @@ let isHidingForFullscreen = false;
 
 // 番茄钟计算属性
 const formattedIslandPomoTime = computed(() => {
-    const m = Math.floor(islandPomoTime.value / 60).toString().padStart(2, '0');
-    const s = (islandPomoTime.value % 60).toString().padStart(2, '0');
+    const m = Math.floor(pomodoroRemainingSecs.value / 60).toString().padStart(2, '0');
+    const s = (pomodoroRemainingSecs.value % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
+});
+
+const pomodoroPhaseClass = computed(() => {
+    return pomodoroPhase.value === 'focus' ? 'phase-focus' : 'phase-break';
 });
 
 const showPomodoroText = computed(() => {
@@ -307,46 +311,8 @@ const isSplitMode = computed(() => {
     return isPomodoroVisible.value && isMusicCtlEnabled.value && !isPomodoroExpanded.value;
 });
 
-// 番茄钟倒计时管理
-const startPomoCountdown = () => {
-    if (pomoCountdownTimer) clearInterval(pomoCountdownTimer);
-    if (islandPomoTime.value <= 0) { cleanUpPomoExit(); return; }
-    pomoCountdownTimer = window.setInterval(() => {
-        islandPomoTime.value--;
-        if (islandPomoTime.value <= 0) {
-            clearInterval(pomoCountdownTimer!);
-            pomoCountdownTimer = null;
-            cleanUpPomoExit();
-        }
-    }, 1000);
-};
-
-const stopPomoCountdown = () => {
-    if (pomoCountdownTimer) { clearInterval(pomoCountdownTimer); pomoCountdownTimer = null; }
-};
-
-const cleanUpPomoExit = () => {
-    isPomodoroActive.value = false;
-    isPomodoroVisible.value = false;
-    isPomodoroExpanded.value = false;
-    const defaultTime = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
-    islandPomoTime.value = defaultTime;
-    islandPomoTotalTime.value = defaultTime;
-    localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
-    localStorage.setItem(NSD_POMODORO_ACTIVE, 'false');
-    localStorage.setItem(NSD_POMODORO_STARTED, 'false');
-    showToast('专注结束，休息一下吧！', 'app');
-    emit('live-activity-toggle', { id: 'pomodoro', enabled: false, isReset: true });
-    if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
-        const { h } = getBaseSize();
-        const savedWidth = restoreIslandWidth();
-        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
-        animateIslandSize(targetWidth, h);
-    }
-};
-
-const closeIslandPomodoro = () => {
-    isPomodoroExpanded.value = false;
+// 关闭番茄钟展开（恢复岛尺寸）
+const handlePomoClose = () => {
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
         const savedWidth = restoreIslandWidth();
@@ -2042,39 +2008,50 @@ onMounted(async () => {
         }
     });
 
-    // 监听实时活动控制台指令 (番茄钟)
-    await listen<{ id: string, enabled: boolean, time?: number, isReset?: boolean }>('live-activity-toggle', async (event) => {
-        if (event.payload.id === 'pomodoro') {
-            isPomodoroActive.value = event.payload.enabled;
-            if (event.payload.time !== undefined) {
-                islandPomoTime.value = event.payload.time;
-                islandPomoTotalTime.value = event.payload.time;
+    // 监听后端番茄钟 tick 事件
+    await listen<any>('pomodoro-tick', async (event) => {
+        const p = event.payload;
+        if (p.active === false) {
+            // 番茄钟结束 → 隐藏
+            isPomodoroVisible.value = false;
+            isPomodoroExpanded.value = false;
+            localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
+            if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+                const { h } = getBaseSize();
+                const savedWidth = restoreIslandWidth();
+                const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+                animateIslandSize(targetWidth, h);
             }
-            if (event.payload.enabled) {
-                isPomodoroVisible.value = true;
-                localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
-                startPomoCountdown();
-            } else {
-                stopPomoCountdown();
-                if (event.payload.isReset) {
-                    isPomodoroVisible.value = false;
-                    isPomodoroExpanded.value = false;
-                    localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
-                } else {
-                    if (!event.payload.isReset && localStorage.getItem(NSD_POMODORO_STARTED) === 'false') {
-                        islandPomoTime.value = Number(localStorage.getItem(NSD_POMODORO_TIME)) || 1500;
-                        islandPomoTotalTime.value = islandPomoTime.value;
-                    }
-                }
-            }
+            return;
         }
-        if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
-            const { h } = getBaseSize();
-            const savedWidth = restoreIslandWidth();
-            const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
-            animateIslandSize(targetWidth, h);
+        // 更新显示状态
+        pomodoroRemainingSecs.value = p.remaining_secs;
+        pomodoroPhase.value = p.phase;
+        pomodoroRemainingCycles.value = p.remaining_cycles;
+        // 确保可见
+        if (!isPomodoroVisible.value) {
+            isPomodoroVisible.value = true;
+            localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
+        }
+        // 暂停时不调整展开状态，但不影响显示
+    });
+
+    // 监听番茄钟阶段切换事件（用于显示 toast 提示）
+    await listen<any>('pomodoro-phase-change', async (event) => {
+        const p = event.payload;
+        if (p.phase === 'break') {
+            showToast('专注结束，休息一下吧！', 'app');
+        } else {
+            showToast('休息结束，继续专注！', 'app');
         }
     });
+
+    // 监听番茄钟完成事件
+    await listen<any>('pomodoro-complete', async () => {
+        showToast('所有番茄钟已完成！🎉', 'app');
+    });
+
+    // 监听实时活动控制台指令（非番茄钟活动）
 
     // 监听自动折叠设置
     await listen<{ enabled: boolean, delay: number }>('control-auto-collapse', (event) => {
@@ -2281,10 +2258,17 @@ onMounted(async () => {
         calculateScroll();
     }, 700);
 
-    // 初始化检测：番茄钟原本就是运行状态，直接开跑倒计时
-    if (isPomodoroActive.value) {
-        startPomoCountdown();
-    }
+    // 恢复番茄钟运行状态：查询后端当前状态
+    try {
+        const state: any = await invoke('get_pomodoro_state');
+        if (state.active) {
+            pomodoroRemainingSecs.value = state.remaining_secs;
+            pomodoroPhase.value = state.phase;
+            pomodoroRemainingCycles.value = state.remaining_cycles;
+            isPomodoroVisible.value = true;
+            localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
+        }
+    } catch (_e) {}
 });
 
 onUnmounted(() => {
@@ -2298,7 +2282,6 @@ onUnmounted(() => {
     clearInterval(musicTimer);
     clearInterval(notifyTimer);
     stopProgressTimer();
-    if (pomoCountdownTimer) clearInterval(pomoCountdownTimer);
     // 组件卸载时关闭频谱捕获，避免后端空跑
     invoke('set_spectrum_active', { active: false }).catch(() => {});
     if (speedCycleTimer) clearInterval(speedCycleTimer);
@@ -3279,16 +3262,50 @@ onUnmounted(() => {
 .pomodoro-time {
     font-size: 18px;
     font-weight: bold;
-    color: #ff4757;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.5px;
     transform: translateY(-0.5px);
+    transition: color 0.3s ease;
+}
+
+.pomodoro-time.phase-focus {
+    color: #ff4757;
+}
+
+.pomodoro-time.phase-break {
+    color: #2196f3;
 }
 
 .pomodoro-svg {
     width: 24px;
     height: 24px;
+    transition: color 0.3s ease;
+}
+
+.pomodoro-svg.phase-focus {
     color: #ff4757;
+}
+
+.pomodoro-svg.phase-break {
+    color: #2196f3;
+}
+
+/* 番茄钟剩余轮数徽章 */
+.pomodoro-cycle-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 18px;
+    padding: 0 5px;
+    margin-left: 6px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 800;
+    background: rgba(128, 128, 128, 0.2);
+    color: var(--item-title-color, #888);
+    font-variant-numeric: tabular-nums;
+    transform: translateY(-0.5px);
 }
 
 /* 实时活动全岛关闭按钮 */
