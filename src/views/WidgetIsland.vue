@@ -98,6 +98,19 @@
                             <div class="toast-text">{{ sysToastText }}</div>
                         </div>
 
+                        <div v-else-if="showCountdownText" class="countdown-text-box" key="countdown">
+                            <svg viewBox="0 0 24 24" class="countdown-svg"
+                                fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <polyline points="12 6 12 12 16 14"></polyline>
+                            </svg>
+                            <div class="countdown-info">
+                                <span v-if="isCountdownFinished" class="countdown-finished-text">倒计时结束</span>
+                                <span v-else class="countdown-time">{{ formattedIslandCdTime }}</span>
+                            </div>
+                        </div>
+
                         <div v-else-if="showPomodoroText" class="pomodoro-text-box" key="pomodoro">
                             <svg viewBox="0 0 24 24" class="pomodoro-svg"
                                 :class="pomodoroPhaseClass" fill="none" stroke="currentColor"
@@ -215,7 +228,27 @@
                 </div>
 
                 <transition mode="out-in" @enter="onInnerEnter" @leave="onInnerLeave" :css="false">
-                    <div v-if="isPomodoroExpanded" class="island-close-btn" @click.stop="isPomodoroExpanded = false; handlePomoClose()" key="close-btn">
+                    <!-- 倒计时展开态：暂停/开始 + 关闭 -->
+                    <div v-if="isCountdownExpanded" class="cd-expanded-controls" key="cd-controls">
+                        <button class="cd-pause-btn" @click.stop="handleCdTogglePauseResume" :title="cdPaused ? '继续' : '暂停'">
+                            <svg v-if="cdPaused" viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                <path d="M8 5v14l11-7z" />
+                            </svg>
+                            <svg v-else viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+                                <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                            </svg>
+                        </button>
+                        <div class="island-close-btn cd-close-btn" @click.stop="handleCdClose">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </div>
+                    </div>
+
+                    <!-- 番茄钟展开态：关闭 -->
+                    <div v-else-if="isPomodoroExpanded" class="island-close-btn" @click.stop="isPomodoroExpanded = false; handlePomoClose()" key="close-btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -237,6 +270,17 @@
                     <div class="right-circle" :style="coreContentStyle" v-if="isSplitMode"
                         @click.stop="isPomodoroExpanded = true" style="cursor: pointer;">
                         <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <polyline points="12 6 12 12 16 14"></polyline>
+                        </svg>
+                    </div>
+
+                    <!-- 倒计时右侧圆钮（灵动岛拆分模式 + 倒计时可见 + 音乐控制器开启 + 倒计时未展开） -->
+                    <div class="right-circle cd-right-circle" :style="coreContentStyle"
+                        v-if="isCountdownVisible && isMusicCtlEnabled && !isCountdownExpanded && !isMsgActive && !displaySysToast && !isMusicExpanded && !isMusicExpanding"
+                        @click.stop="isCountdownExpanded = true" style="cursor: pointer;">
+                        <svg viewBox="0 0 24 24" class="countdown-svg" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
                             <circle cx="12" cy="12" r="10"></circle>
                             <polyline points="12 6 12 12 16 14"></polyline>
@@ -270,6 +314,7 @@ import {
     NSD_ISLAND_WIDTH, NSD_ISLAND_POSITION, NSD_MSG_NOTIFY,
     NSD_TARGET_PLAYER, NSD_AUTO_HIDE_FS,
     NSD_POMODORO_VISIBLE,
+    NSD_COUNTDOWN_VISIBLE,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
@@ -281,6 +326,13 @@ const pomodoroRemainingSecs = ref(0);
 const pomodoroPhase = ref<'focus' | 'break'>('focus');
 const pomodoroRemainingCycles = ref(0);
 const isPomodoroExpanded = ref(false);
+
+// 倒计时相关变量（由后端 countdown-tick 事件驱动）
+const isCountdownVisible = ref(false);
+const countdownRemainingSecs = ref(0);
+const isCountdownExpanded = ref(false);
+const isCountdownFinished = ref(false);
+const cdPaused = ref(false);
 
 // 全屏自动隐藏相关
 const isAutoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
@@ -306,6 +358,21 @@ const showPomodoroText = computed(() => {
     return false;
 });
 
+// 倒计时计算属性
+const formattedIslandCdTime = computed(() => {
+    const m = Math.floor(countdownRemainingSecs.value / 60).toString().padStart(2, '0');
+    const s = (countdownRemainingSecs.value % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+});
+
+const showCountdownText = computed(() => {
+    if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
+    if (isCountdownVisible.value && !isMusicCtlEnabled.value) return true;
+    if (isCountdownVisible.value && isMusicCtlEnabled.value && isCountdownExpanded.value) return true;
+    if (isExpandedSize.value) return true;
+    return false;
+});
+
 const isSplitMode = computed(() => {
     if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
     return isPomodoroVisible.value && isMusicCtlEnabled.value && !isPomodoroExpanded.value;
@@ -313,6 +380,29 @@ const isSplitMode = computed(() => {
 
 // 关闭番茄钟展开（恢复岛尺寸）
 const handlePomoClose = () => {
+    if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+    }
+};
+
+// 倒计时控制函数
+const handleCdTogglePauseResume = async () => {
+    if (cdPaused.value) {
+        await invoke('resume_countdown');
+    } else {
+        await invoke('pause_countdown');
+    }
+};
+
+const handleCdClose = async () => {
+    await invoke('stop_countdown');
+    isCountdownExpanded.value = false;
+    isCountdownVisible.value = false;
+    isCountdownFinished.value = false;
+    localStorage.setItem(NSD_COUNTDOWN_VISIBLE, 'false');
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
         const savedWidth = restoreIslandWidth();
@@ -539,19 +629,19 @@ const currentRotIndex = ref(0); // 0=网速 1=音乐, 2=硬件
 let rotationTimer: number | null = null;
 
 // 使用计算属性智能判断当前该显示�?
-const displaySpeed = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && (isRotationEnabled.value ? currentRotIndex.value === 0 : (!isMusicCtlEnabled.value && !isHardwareMonEnabled.value)));
-const displayMusic = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && (isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value));
-const displayHardware = computed(() => !isMsgActive.value && !displaySysToast.value && (isRotationEnabled.value ? currentRotIndex.value === 2 : isHardwareMonEnabled.value));
+const displaySpeed = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && !showCountdownText.value && (isRotationEnabled.value ? currentRotIndex.value === 0 : (!isMusicCtlEnabled.value && !isHardwareMonEnabled.value)));
+const displayMusic = computed(() => !isMsgActive.value && !displaySysToast.value && !showPomodoroText.value && !showCountdownText.value && (isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value));
+const displayHardware = computed(() => !isMsgActive.value && !displaySysToast.value && !showCountdownText.value && (isRotationEnabled.value ? currentRotIndex.value === 2 : isHardwareMonEnabled.value));
 
 // 辅助函数：获取当前状态应该拥有的默认大小
 const getBaseSize = () => {
-    if (isPomodoroVisible.value) return { w: 250, h: 38 };
+    if (isPomodoroVisible.value || isCountdownVisible.value) return { w: 250, h: 38 };
     if (displaySpeed.value || displayHardware.value) return { w: 150, h: 34 };
     return { w: 260, h: 42 };
 };
 
 // 监听内容切换，触发丝滑动画�?
-watch([displaySpeed, displayMusic, displayHardware, showPomodoroText], () => {
+watch([displaySpeed, displayMusic, displayHardware, showPomodoroText, showCountdownText], () => {
     // 只有在没有被临时弹窗（消息、音乐展开）霸占时，才执行基础大小切换
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
@@ -2051,6 +2141,38 @@ onMounted(async () => {
         showToast('所有番茄钟已完成！🎉', 'app');
     });
 
+    // 监听倒计时 tick 事件
+    await listen<any>('countdown-tick', async (event) => {
+        const p = event.payload;
+        if (p.active === false && p.phase === 'idle') {
+            isCountdownVisible.value = false;
+            isCountdownExpanded.value = false;
+            isCountdownFinished.value = false;
+            cdPaused.value = false;
+            localStorage.setItem(NSD_COUNTDOWN_VISIBLE, 'false');
+            if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+                const { h } = getBaseSize();
+                const savedWidth = restoreIslandWidth();
+                const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+                animateIslandSize(targetWidth, h);
+            }
+            return;
+        }
+        countdownRemainingSecs.value = p.remaining_secs;
+        cdPaused.value = p.paused || false;
+        isCountdownFinished.value = p.phase === 'finished';
+        if (!isCountdownVisible.value) {
+            isCountdownVisible.value = true;
+            localStorage.setItem(NSD_COUNTDOWN_VISIBLE, 'true');
+        }
+    });
+
+    // 监听倒计时完成事件
+    await listen<any>('countdown-complete', async () => {
+        isCountdownFinished.value = true;
+        showToast('⏰ 倒计时结束', 'app');
+    });
+
     // 监听实时活动控制台指令（非番茄钟活动）
 
     // 监听自动折叠设置
@@ -2267,6 +2389,18 @@ onMounted(async () => {
             pomodoroRemainingCycles.value = state.remaining_cycles;
             isPomodoroVisible.value = true;
             localStorage.setItem(NSD_POMODORO_VISIBLE, 'true');
+        }
+    } catch (_e) {}
+
+    // 恢复倒计时运行状态：查询后端当前状态
+    try {
+        const state: any = await invoke('get_countdown_state');
+        if (state.active) {
+            countdownRemainingSecs.value = state.remaining_secs;
+            cdPaused.value = state.paused || false;
+            isCountdownFinished.value = state.phase === 'finished';
+            isCountdownVisible.value = true;
+            localStorage.setItem(NSD_COUNTDOWN_VISIBLE, 'true');
         }
     } catch (_e) {}
 });
@@ -3288,6 +3422,90 @@ onUnmounted(() => {
 
 .pomodoro-svg.phase-break {
     color: #2196f3;
+}
+
+/* ===== 倒计时样式 ===== */
+.countdown-text-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.countdown-svg {
+    width: 24px;
+    height: 24px;
+    color: #ff9800;
+    transition: color 0.3s ease;
+}
+
+.countdown-info {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.countdown-time {
+    font-size: 18px;
+    font-weight: 800;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #ff9800;
+    letter-spacing: 1px;
+}
+
+.countdown-finished-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: #ff9800;
+    animation: cd-blink 1s ease-in-out infinite;
+}
+
+@keyframes cd-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* 倒计时右侧圆钮（橙色底） */
+.cd-right-circle {
+    background: #ff9800 !important;
+}
+
+.cd-right-circle .countdown-svg {
+    color: #fff !important;
+}
+
+/* 倒计时展开态控制按钮组 */
+.cd-expanded-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    transform: translateX(8px) !important;
+}
+
+.cd-pause-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: rgba(255, 152, 0, 0.15);
+    color: #ff9800;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.cd-pause-btn:hover {
+    background: rgba(255, 152, 0, 0.25);
+}
+
+.cd-close-btn {
+    color: #ff9800 !important;
+}
+
+.cd-close-btn:hover {
+    background-color: rgba(255, 152, 0, 0.15) !important;
+    color: #ff9800 !important;
 }
 
 /* 番茄钟剩余轮数徽章 */

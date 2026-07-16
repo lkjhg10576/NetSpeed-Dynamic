@@ -189,6 +189,47 @@
                                 </div>
                             </template>
 
+                            <template v-else-if="item.id === 'countdown'">
+                                <!-- 倒计时结束状态 -->
+                                <div v-if="cdFinished" class="cd-finish-state">
+                                    <div class="cd-finish-text">⏰ 倒计时结束</div>
+                                    <button class="cd-reset-btn" @click="handleCdStop">关闭</button>
+                                </div>
+
+                                <!-- 运行中状态 -->
+                                <div v-else-if="cdRunning" class="cd-running-state">
+                                    <div class="cd-running-time">{{ cdFormattedRemaining }}</div>
+                                    <div class="cd-running-meta">
+                                        <span v-if="cdPaused" class="cd-paused-tag">已暂停</span>
+                                    </div>
+                                    <div class="cd-controls">
+                                        <button class="cd-btn" @click="handleCdPauseResume">
+                                            {{ cdPaused ? '▶ 继续' : '⏸ 暂停' }}
+                                        </button>
+                                        <button class="cd-btn cd-stop-btn" @click="handleCdStop">⏹ 停止</button>
+                                    </div>
+                                </div>
+
+                                <!-- 设置状态 -->
+                                <div v-else class="cd-setup">
+                                    <div class="cd-setup-label">⏱ 设定时间</div>
+                                    <div class="cd-input-row">
+                                        <div class="cd-input-group">
+                                            <input type="number" v-model.number="cdMinutes" class="cd-input" min="0" max="999" />
+                                            <span class="cd-unit">分</span>
+                                        </div>
+                                        <div class="cd-input-group">
+                                            <input type="number" v-model.number="cdSeconds" class="cd-input" min="0" max="59" />
+                                            <span class="cd-unit">秒</span>
+                                        </div>
+                                    </div>
+                                    <button class="cd-start-btn" @click="handleCdStart"
+                                        :disabled="cdMinutes === 0 && cdSeconds === 0">
+                                        ▶ 开始倒计时
+                                    </button>
+                                </div>
+                            </template>
+
                             <template v-else>
                                 <div class="pro-coming-soon">
                                     <div class="loader-line"></div>
@@ -213,6 +254,7 @@ import {
     NSD_POMODORO_FOCUS_SECS,
     NSD_POMODORO_BREAK_SECS,
     NSD_POMODORO_CYCLES,
+    NSD_COUNTDOWN_SECS,
 } from '../constants/storageKeys';
 
 // ===== 三步设置状态 =====
@@ -238,6 +280,55 @@ const pomoFormattedRemaining = computed(() => {
     const s = (t % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
 });
+
+// ===== 倒计时状态 =====
+const cdRunning = ref(false);
+const cdPaused = ref(false);
+const cdRemainingSecs = ref(0);
+const cdTotalSecs = ref(0);
+const cdFinished = ref(false);
+const cdMinutes = ref(Number(localStorage.getItem(NSD_COUNTDOWN_SECS) || '5'));
+const cdSeconds = ref(0);
+
+const cdFormattedRemaining = computed(() => {
+    const t = cdRemainingSecs.value;
+    const m = Math.floor(t / 60).toString().padStart(2, '0');
+    const s = (t % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+});
+
+function saveCdConfig() {
+    localStorage.setItem(NSD_COUNTDOWN_SECS, (cdMinutes.value * 60 + cdSeconds.value).toString());
+}
+
+async function handleCdStart() {
+    const totalSecs = cdMinutes.value * 60 + cdSeconds.value;
+    if (totalSecs < 1) return;
+    saveCdConfig();
+    await invoke('start_countdown', { totalSecs });
+    cdTotalSecs.value = totalSecs;
+    cdRemainingSecs.value = totalSecs;
+    cdRunning.value = true;
+    cdPaused.value = false;
+    cdFinished.value = false;
+}
+
+async function handleCdPauseResume() {
+    if (cdPaused.value) {
+        await invoke('resume_countdown');
+        cdPaused.value = false;
+    } else {
+        await invoke('pause_countdown');
+        cdPaused.value = true;
+    }
+}
+
+async function handleCdStop() {
+    await invoke('stop_countdown');
+    cdRunning.value = false;
+    cdPaused.value = false;
+    cdFinished.value = false;
+}
 
 // ===== 持久化三步配置 =====
 function savePomoConfig() {
@@ -300,6 +391,15 @@ const activities = ref([
         title: '专注番茄钟',
         desc: '沉浸工作时间管理',
         accent: '#ff4757',
+        enabled: false,
+        disable: false
+    },
+    {
+        id: 'countdown',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>',
+        title: '快捷倒计时',
+        desc: '自定义时长倒计时',
+        accent: '#ff9800',
         enabled: false,
         disable: false
     },
@@ -417,6 +517,40 @@ onMounted(async () => {
     } catch (_e) {
         // 后端 pomodoro 模块不存在或未初始化，忽略
     }
+
+    // 监听倒计时 tick 事件
+    await listen<any>('countdown-tick', (event) => {
+        const p = event.payload;
+        if (p.active === false) {
+            cdRunning.value = false;
+            cdPaused.value = false;
+            cdFinished.value = false;
+            return;
+        }
+        cdRunning.value = true;
+        cdPaused.value = p.paused || false;
+        cdRemainingSecs.value = p.remaining_secs;
+        cdTotalSecs.value = p.total_secs || cdTotalSecs.value;
+        cdFinished.value = p.phase === 'finished';
+    });
+
+    // 监听倒计时完成事件
+    await listen<any>('countdown-complete', () => {
+        cdRunning.value = false;
+        cdFinished.value = true;
+    });
+
+    // 尝试恢复倒计时运行状态
+    try {
+        const state: any = await invoke('get_countdown_state');
+        if (state.active) {
+            cdRunning.value = true;
+            cdPaused.value = state.paused || false;
+            cdRemainingSecs.value = state.remaining_secs;
+            cdTotalSecs.value = state.total_secs;
+            cdFinished.value = state.phase === 'finished';
+        }
+    } catch (_e) {}
 
     nextTick(() => { checkScroll(); });
     window.addEventListener('resize', checkScroll);
@@ -1176,5 +1310,198 @@ onUnmounted(() => {
 .pomo-ready-actions {
     display: flex;
     gap: 8px;
+}
+
+/* ===== 倒计时样式 ===== */
+.cd-setup {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 10px;
+}
+
+.cd-setup-label {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--h1-color);
+    text-align: center;
+}
+
+.cd-input-row {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+}
+
+.cd-input-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.cd-input {
+    width: 60px;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid var(--control-border);
+    border-radius: 8px;
+    padding: 8px 6px;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--h1-color);
+    outline: none;
+    transition: all 0.2s ease;
+}
+
+.cd-input:focus {
+    border-color: #ff9800;
+    background: transparent;
+}
+
+.cd-input::-webkit-outer-spin-button,
+.cd-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.cd-input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.cd-unit {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--item-desc-color);
+}
+
+.cd-start-btn {
+    padding: 8px 20px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: 8px;
+    cursor: pointer;
+    border: none;
+    background: #ff9800;
+    color: #fff;
+    transition: all 0.2s ease;
+    outline: none;
+    align-self: center;
+    width: fit-content;
+}
+
+.cd-start-btn:hover {
+    opacity: 0.9;
+    transform: translateY(-1px);
+}
+
+.cd-start-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+    transform: none;
+}
+
+.cd-running-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px 0;
+}
+
+.cd-running-time {
+    font-size: 32px;
+    font-weight: 900;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    letter-spacing: 3px;
+    color: #ff9800;
+}
+
+.cd-running-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--subtitle-color);
+}
+
+.cd-paused-tag {
+    background: rgba(255, 193, 7, 0.15);
+    color: #f59e0b;
+    padding: 2px 10px;
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.cd-controls {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.cd-btn {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--control-border);
+    background: var(--card-bg);
+    color: var(--item-title-color);
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.cd-btn:hover {
+    background: var(--control-border);
+}
+
+.cd-stop-btn {
+    border-color: #ef4444;
+    color: #ef4444;
+}
+
+.cd-stop-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+.cd-finish-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+}
+
+.cd-finish-text {
+    font-size: 18px;
+    font-weight: 800;
+    color: #ff9800;
+    animation: cd-pulse 1s ease-in-out infinite;
+}
+
+@keyframes cd-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.cd-reset-btn {
+    padding: 6px 16px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 6px;
+    cursor: pointer;
+    border: 1px solid var(--control-border);
+    background: var(--card-bg);
+    color: var(--item-title-color);
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.cd-reset-btn:hover {
+    background: var(--control-border);
 }
 </style>
