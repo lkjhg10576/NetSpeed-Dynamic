@@ -188,7 +188,7 @@ NetSpeed-Dynamic/
 ### 安装与运行
 
 ```bash
-git clone https://github.com/GEORGEWWWU/NetSpeed-Dynamic.git
+git clone https://github.com/lkjhg10576/NetSpeed-Dynamic.git
 cd NetSpeed-Dynamic
 npm install
 npm run tauri dev
@@ -222,7 +222,7 @@ Copyright (c) 2026 Ryen (GEORGEWU)
 
 ## 捐赠
 
-如果 NSD 对你有帮助，欢迎请作者喝杯咖啡！
+当前项目并不是原版的NSD，但如果你喜欢的话，请前往以下渠道捐赠原作者。没有原作者的代码，该分支也不会出现。欢迎你请原作者喝杯咖啡！
 
 | 方式 | 信息 |
 |------|------|
