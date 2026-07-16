@@ -451,6 +451,8 @@ pub fn run() {
                 unsafe { let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED); }
                 
                 let mut was_fullscreen = false;
+                // P1：前台窗口句柄缓存 — 句柄未变时跳过完整的 Win32 API 检测，空闲开销趋近于零
+                let mut last_fg_hwnd = std::ptr::null_mut();
                 loop {
                     std::thread::sleep(std::time::Duration::from_millis(600));
                     
@@ -459,6 +461,13 @@ pub fn run() {
                         unsafe {
                             let mut is_fullscreen = false;
                             let fg_hwnd = winapi::um::winuser::GetForegroundWindow();
+                            
+                            // 快速路径：前台窗口句柄与上次相同，说明窗口未切换，跳过完整检测
+                            if fg_hwnd == last_fg_hwnd {
+                                continue;
+                            }
+                            last_fg_hwnd = fg_hwnd;
+                            
                             let shell_hwnd = winapi::um::winuser::GetShellWindow();
                             
                             if !fg_hwnd.is_null() 

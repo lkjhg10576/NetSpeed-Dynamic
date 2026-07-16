@@ -1,6 +1,6 @@
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use rustfft::{num_complex::Complex, Fft, FftPlanner};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::Emitter;
@@ -16,6 +16,9 @@ static SPECTRUM_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 // B8: 全局 AppHandle，用于向 Tauri 事件系统推送频谱数据（前端从 invoke 轮询改为 listen 被动接收）
 static APP_HANDLE: Mutex<Option<Arc<tauri::AppHandle>>> = Mutex::new(None);
+
+// B9: 频谱 emit 节流锁 — 限制每 50ms 最多推送一次（从 ~86Hz 降至 ~20Hz），大幅减少 WebSocket 消息积压
+static LAST_EMIT_MS: AtomicU64 = AtomicU64::new(0);
 
 /// 注册 AppHandle（在 Tauri setup 阶段调用），用于 emit 事件到前端
 pub fn set_app_handle(handle: Arc<tauri::AppHandle>) {
@@ -195,7 +198,16 @@ fn process_data(data: &[f32], channels: u16) {
                 spec[i] = spec[i] * 0.6 + final_spectrum[i] * 0.4;
             }
             // B8: FFT 处理后通过 Tauri emit 推送，替代前端 setInterval 轮询
-            emit_spectrum(&spec);
+            // B9: 节流 — 每 50ms 最多 emit 一次（20fps 足够频谱动画），减少 76% WebSocket 消息
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let prev_ms = LAST_EMIT_MS.load(Ordering::Relaxed);
+            if now_ms.wrapping_sub(prev_ms) >= 50 {
+                LAST_EMIT_MS.store(now_ms, Ordering::Relaxed);
+                emit_spectrum(&spec);
+            }
         }
     })();
 
