@@ -360,6 +360,8 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
                     "download_speed": rx_speed,
                     "cpu_pct": cpu_pct,
                     "mem_pct": mem_pct,
+                    "used_mem": used_mem,
+                    "total_mem": total_mem,
                     "upload_bytes": total_tx,
                     "download_bytes": total_rx,
                 });
