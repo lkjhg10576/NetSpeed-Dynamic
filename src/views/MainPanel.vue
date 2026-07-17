@@ -808,7 +808,6 @@ const parseVersion = (v: string) => {
 
 let lastRx = 0;
 let lastTx = 0;
-let speedTimer: number;
 let systemThemeMedia: MediaQueryList;
 let unlistenMonitorStats: (() => void) | null = null;
 
@@ -854,8 +853,6 @@ const switchMetric = async (m: ChartMetric) => {
     // 立即清空，给用户"已切换"的视觉反馈
     chartDataQueue.value = Array(15).fill(0);
     metricDropdownOpen.value = false;
-    // 立即拉取一次，避免等下一个 tick
-    await fetchSpeedStats();
 };
 
 // 格式化内存字节数为人类可读
@@ -865,38 +862,6 @@ const formatMem = (bytes: number) => {
     const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
-};
-
-// 获取并更新网络流量统计（仅网速，硬件已迁移至推送）
-const fetchSpeedStats = async () => {
-    try {
-        const [currentRx, currentTx] = await invoke<[number, number]>('get_network_stats');
-        if (lastRx !== 0) {
-            const rxDiff = currentRx - lastRx;
-            const txDiff = currentTx - lastTx;
-            downloadSpeed.value = formatSpeed(rxDiff);
-            uploadSpeed.value = formatSpeed(txDiff);
-
-            if (rxDiff > 0 || txDiff > 0) {
-                const todayStr = getLocalYYYYMMDD(new Date());
-                if (!trafficData.value[todayStr]) {
-                    trafficData.value[todayStr] = { up: 0, down: 0 };
-                }
-                trafficData.value[todayStr].down += rxDiff;
-                trafficData.value[todayStr].up += txDiff;
-
-                saveThrottleCounter++;
-                if (saveThrottleCounter >= 5) {
-                    localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));
-                    saveThrottleCounter = 0;
-                }
-            }
-        }
-        lastRx = currentRx;
-        lastTx = currentTx;
-    } catch (error) {
-        console.error('控制台流量获取失败:', error);
-    }
 };
 
 // 折线图数据压入辅助：保持滚动窗口长度 15
@@ -1145,8 +1110,6 @@ onMounted(async () => {
         }
     });
 
-    fetchSpeedStats();
-    speedTimer = setInterval(fetchSpeedStats, 1000) as unknown as number;
     window.addEventListener('resize', () => {
         speedChartRef.value?.resize();
         statsChartRef.value?.resize();
@@ -1201,7 +1164,6 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-    clearInterval(speedTimer);
     systemThemeMedia?.removeEventListener('change', handleSystemThemeUpdate);
     if (unlistenMonitorStats) unlistenMonitorStats();
     localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));

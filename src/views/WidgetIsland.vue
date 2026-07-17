@@ -1261,9 +1261,6 @@ watch([currentTrackInfo, displayMusic, isMusicExpanded], async () => {
     }, 100);
 });
 
-let lastRx = 0;
-let lastTx = 0;
-let speedTimer: number;
 let pingTimer: number;
 let musicTimer: number;
 let msgTimer: number | null = null;
@@ -1272,38 +1269,6 @@ let notifyTimer: number;
 // 防抖控制变量
 let lowTrafficStartTime = Date.now();
 const RED_DELAY_MS = 5000;
-
-// 计算流量数字，并实时更新大流量状�?
-const fetchSpeedStats = async () => {
-    try {
-        const [currentRx, currentTx] = await invoke<[number, number]>('get_network_stats');
-        if (lastRx !== 0) {
-            const rxDiff = currentRx - lastRx;
-            const txDiff = currentTx - lastTx;
-
-            downloadSpeed.value = formatSpeed(rxDiff);
-            uploadSpeed.value = formatSpeed(txDiff);
-
-            // 1MB = 1048576 字节
-            const limit = 1024 * 1024;
-            const currentDownloadHigh = rxDiff >= limit;
-            const currentUploadHigh = txDiff >= limit;
-
-            isHighDownload.value = currentDownloadHigh;
-            isHighUpload.value = currentUploadHigh;
-
-            // 维护低流量持续时�?
-            if (currentDownloadHigh || currentUploadHigh) {
-                // 如果目前依然是大流量，重置计时器
-                lowTrafficStartTime = Date.now();
-            }
-        }
-        lastRx = currentRx;
-        lastTx = currentTx;
-    } catch (error) {
-        console.error('流量获取失败:', error);
-    }
-};
 
 // 通过真实延迟控制状态灯（加入大流量避让判断�?
 const checkNetworkLatency = async () => {
@@ -2442,15 +2407,20 @@ onMounted(async () => {
             uploadSpeed.value = formatSpeed(p.upload_speed);
         }
         if (typeof p.download_bytes === 'number' && typeof p.upload_bytes === 'number') {
-            // 高流量指示
+            // 高流量指示（原 fetchSpeedStats 轮询中的逻辑，现并入推送监听器）
             const rxDiff = p.download_speed || 0;
             const txDiff = p.upload_speed || 0;
-            isHighDownload.value = rxDiff >= 1024 * 1024;
-            isHighUpload.value = txDiff >= 1024 * 1024;
+            const highDown = rxDiff >= 1024 * 1024;
+            const highUp = txDiff >= 1024 * 1024;
+            isHighDownload.value = highDown;
+            isHighUpload.value = highUp;
+            // 维护低流量持续计时：大流量时重置，供断网红灯判断缓冲期使用
+            if (highDown || highUp) {
+                lowTrafficStartTime = Date.now();
+            }
         }
     });
 
-    fetchSpeedStats();
     checkNetworkLatency();
 
     checkNetworkLatency();
@@ -2469,11 +2439,7 @@ onMounted(async () => {
         startHwRotation();
     }
 
-    // 启动网速轮询定时器（硬件已迁移至推送，不再在此轮询）
-    speedTimer = setInterval(async () => {
-        fetchSpeedStats();
-    }, 1500) as unknown as number;
-
+    // 网速与硬件统一由后端 monitor-stats 推送驱动，前端不再轮询（避免与推送互相覆盖导致 0B/s 跳变）
 
     // 2. 中频定时器：专门负责音乐状态同步（每 3000ms 刷新一次即可）
     musicTimer = setInterval(() => {
@@ -2602,7 +2568,6 @@ onUnmounted(() => {
     // 清理自定义横向拖拽的文档级监听器
     document.removeEventListener('mousemove', handleCustomDragMove);
     document.removeEventListener('mouseup', handleCustomDragEnd);
-    clearInterval(speedTimer);
     clearInterval(pingTimer);
     stopRotation();
     stopHwRotation();
