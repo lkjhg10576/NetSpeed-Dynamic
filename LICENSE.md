@@ -1,6 +1,6 @@
 # 许可证说明 / License Notice
 
-本项目 **NetSpeed Dynamic Plus（NSD Plus）** 基于 **NetSpeed Dynamic Pro（鲫鱼 NSD Pro）** 衍生开发。
+本项目 **Music Dynamic Island（MDI）** 基于 **NetSpeed Dynamic Pro（鲫鱼 NSD Pro）** 衍生开发。
 
 - **原始代码**（NetSpeed Dynamic Pro，作者 Ryen / GEORGEWU）以 **MIT 协议** 授权，其许可正文见下方「原始许可」一节。
 - **本衍生版本**（含全部新增与修改内容）以 **Apache License 2.0** 重新授权，版权归 **lkjhg10576** 所有，正文见下方「本衍生版本许可」一节。
@@ -35,7 +35,7 @@ SOFTWARE.
 
 ---
 
-## 本衍生版本许可：Apache License 2.0（适用于 NSD Plus 全部新增与修改）
+## 本衍生版本许可：Apache License 2.0（适用于 MDI 全部新增与修改）
 
                                  Apache License
                            Version 2.0, January 2004
