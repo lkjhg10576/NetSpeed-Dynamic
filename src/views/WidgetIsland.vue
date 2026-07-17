@@ -452,6 +452,7 @@ const isSplitMode = computed(() => {
     if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
     if (isHardwareExpanded.value) return false;
     return isPomodoroVisible.value && isMusicCtlEnabled.value && !isPomodoroExpanded.value
+        || isCountdownVisible.value && isMusicCtlEnabled.value && !isCountdownExpanded.value
         || hwEnabled.value && isMusicCtlEnabled.value && !isHardwareExpanded.value;
 });
 
@@ -805,8 +806,8 @@ watch([displaySpeed, displayMusic, showPomodoroText, showCountdownText, showHard
 
 // 专门用于控制右侧常驻指示灯的独立计算属性（完全不受消息通知打断�?
 const showSpectrumIndicator = computed(() => {
-    // 拆分模式（音乐 + 附属圆环）下由附属圆环代替频谱，避免两者在右侧重叠冲突
-    if (isSplitMode.value) return false;
+    // 拆分模式（实时活动存在）下左侧胶囊已收窄至 calc(100% - 44px)，右侧圆钮独占 44px，
+    // 二者不再重叠，因此保留频谱：让专辑图/歌名歌手/频谱三件套整体靠左，右侧为实时活动让位。
     return isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value;
 });
 
