@@ -617,7 +617,8 @@ const minimizeWindow = async () => {
     await getCurrentWindow().minimize();
 };
 const closeWindow = async () => {
-    await getCurrentWindow().hide();
+    // 走 close() 触发后端 CloseRequested 事件，由后端根据省内存模式决定 hide 还是 destroy
+    await getCurrentWindow().close();
 };
 
 // 全屏自动隐藏开关
