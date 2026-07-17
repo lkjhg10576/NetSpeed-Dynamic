@@ -1130,6 +1130,12 @@ onMounted(async () => {
         if (typeof p.mem_pct === 'number') {
             memUsageVal.value = Math.round(p.mem_pct);
         }
+        if (typeof p.used_mem === 'number') {
+            memUsedVal.value = p.used_mem;
+        }
+        if (typeof p.total_mem === 'number') {
+            memTotalVal.value = p.total_mem;
+        }
         // CPU / 内存模式：折线图填充
         if (chartMetric.value === 'cpu' && typeof p.cpu_pct === 'number') {
             pushChartData(cpuUsageVal.value);
