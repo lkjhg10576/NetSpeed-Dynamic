@@ -446,6 +446,7 @@
             <div class="ft_right">
                 <span class="action-link" @click="openNSDweb">官方网站</span>
                 <span class="action-link" @click="openNSDdata">开源数据</span>
+                <span class="action-link" @click="openMywebsite">作者主页</span>
                 <span class="action-link"
                     :style="{ opacity: isChecking ? 0.5 : 1, pointerEvents: isChecking ? 'none' : 'auto', position: 'relative' }"
                     @click="checkUpdate">
@@ -905,7 +906,7 @@ const pushChartData = (val: number) => {
 };
 
 const openMywebsite = () => {
-    openUrl('https://blog.georgewu.top');
+    openUrl('https://github.com/lkjhg10576');
 }
 
 // 新增：静默检查更新（后台偷偷查，不弹窗，报错了也不干扰用户）
