@@ -286,22 +286,82 @@ async fn start_island_animation(
     Ok(())
 }
 
-/// B1 后台线程：每 1s 刷新 CPU / 内存统计，写入原子变量供 command 零阻塞读取
-fn start_hardware_monitor() {
-    std::thread::spawn(|| {
+// 新增：网速差值计算的缓存（硬件监控线程内部使用）
+static HW_LAST_RX: AtomicU64 = AtomicU64::new(0);
+static HW_LAST_TX: AtomicU64 = AtomicU64::new(0);
+static HW_EMIT_ENABLED: AtomicBool = AtomicBool::new(true);
+
+// B1 后台线程：每 1s 刷新 CPU / 内存统计，写入原子变量供 command 零阻塞读取
+// 同时每 2s emit "monitor-stats" 事件，推送网速差值 + CPU/内存
+fn start_hardware_monitor(app_handle: tauri::AppHandle) {
+    std::thread::spawn(move || {
         let mut sys = System::new();
-        // 首次刷新建立 CPU 基线，sysinfo 需要两次采样才能计算使用率
+        let mut networks = Networks::new_with_refreshed_list();
+        let mut last_emit = std::time::Instant::now();
+        // 首次刷新建立 CPU 基线
         sys.refresh_cpu_usage();
         std::thread::sleep(Duration::from_millis(200));
         loop {
             sys.refresh_cpu_usage();
             sys.refresh_memory();
-            HW_CPU_X100.store((sys.global_cpu_info().cpu_usage() * 100.0) as u32, Ordering::Relaxed);
-            HW_MEM_USED.store(sys.used_memory(), Ordering::Relaxed);
-            HW_MEM_TOTAL.store(sys.total_memory(), Ordering::Relaxed);
+            // sysinfo 0.30 中 global_cpu_info() 行为变化，改用 cpus() 遍历求平均
+            let cpus = sys.cpus();
+            let cpu_pct: f32 = if !cpus.is_empty() {
+                cpus.iter().map(|c| c.cpu_usage()).sum::<f32>() / cpus.len() as f32
+            } else {
+                0.0
+            };
+            let used_mem = sys.used_memory();
+            let total_mem = sys.total_memory();
+            let mem_pct = if total_mem > 0 { (used_mem as f64 / total_mem as f64) * 100.0 } else { 0.0 };
+            HW_CPU_X100.store((cpu_pct * 100.0) as u32, Ordering::Relaxed);
+            HW_MEM_USED.store(used_mem, Ordering::Relaxed);
+            HW_MEM_TOTAL.store(total_mem, Ordering::Relaxed);
+
+            // 刷新网络统计并计算差值
+            networks.refresh();
+            let mut total_rx: u64 = 0;
+            let mut total_tx: u64 = 0;
+            for (_name, data) in networks.iter() {
+                total_rx += data.total_received();
+                total_tx += data.total_transmitted();
+            }
+            // 计算瞬时速度 (bytes/s)，避免除零
+            let prev_rx = HW_LAST_RX.load(Ordering::Relaxed);
+            let prev_tx = HW_LAST_TX.load(Ordering::Relaxed);
+            let (rx_speed, tx_speed) = if prev_rx > 0 {
+                let rx_diff = total_rx.saturating_sub(prev_rx);
+                let tx_diff = total_tx.saturating_sub(prev_tx);
+                ((rx_diff as f64).round() as u64, (tx_diff as f64).round() as u64)
+            } else {
+                (0, 0)
+            };
+            HW_LAST_RX.store(total_rx, Ordering::Relaxed);
+            HW_LAST_TX.store(total_tx, Ordering::Relaxed);
+
+            // 每 2s 推送 monitor-stats 事件（带容错，widget 窗口未就绪时跳过）
+            if last_emit.elapsed() >= Duration::from_secs(2) && HW_EMIT_ENABLED.load(Ordering::Relaxed) {
+                let payload = serde_json::json!({
+                    "upload_speed": tx_speed,
+                    "download_speed": rx_speed,
+                    "cpu_pct": cpu_pct,
+                    "mem_pct": mem_pct,
+                    "upload_bytes": total_tx,
+                    "download_bytes": total_rx,
+                });
+                let _ = app_handle.emit("monitor-stats", payload);
+                last_emit = std::time::Instant::now();
+            }
+
             std::thread::sleep(Duration::from_secs(1));
         }
     });
+}
+
+// 新增：控制硬件监控事件推送开关
+#[tauri::command]
+fn set_hardware_emit(enabled: bool) {
+    HW_EMIT_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
 struct AppState {
@@ -408,6 +468,7 @@ pub fn run() {
             get_network_stats,
             is_widget_visible,
             set_destroy_on_close,
+            set_hardware_emit,
             get_network_latency,
             notification::fetch_latest_notification,
             notification::launch_app_by_aumid,
@@ -443,7 +504,9 @@ pub fn run() {
             system_events::start_monitor(app.handle().clone());
             pomodoro::start_pomodoro_thread(app.handle().clone());
             countdown::start_countdown_thread(app.handle().clone());
-            start_hardware_monitor();
+            start_hardware_monitor(app.handle().clone());
+
+            // 全屏应用检测线程
 
             // 全屏应用检测线程：每 600ms 轮询，发射 fullscreen-changed 事件供前端做自动隐藏
             let app_handle_for_fs = app.handle().clone();
