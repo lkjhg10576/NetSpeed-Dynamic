@@ -49,3 +49,10 @@ export const NSD_THEME_MODE = 'nsd_theme_mode';
 export const NSD_TARGET_PLAYER = 'nsd_target_player';
 export const NSD_TRAFFIC_STATS = 'nsd_traffic_stats';
 export const NSD_CHART_METRIC = 'nsd_chart_metric'; // 实时状态下拉选择：speed | cpu | ram
+
+// 硬件监控配置（后端推送模式下）
+export const NSD_HW_ENABLED = 'nsd_hw_enabled';
+export const NSD_HW_MODE = 'nsd_hw_mode'; // 'dual' | 'rotation' | 'single'
+export const NSD_HW_DEFAULT_METRIC = 'nsd_hw_default_metric'; // 'cpu' | 'mem'
+export const NSD_HW_ROTATION = 'nsd_hw_rotation'; // 轮换模式开关（兼容旧名）
+export const NSD_HW_DUAL_RING = 'nsd_hw_dual_ring'; // 双圆环模式开关（兼容旧名）
