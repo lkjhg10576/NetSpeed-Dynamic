@@ -125,6 +125,7 @@
                         </div>
 
                         <div v-else-if="showHardwareRing" class="hardware-ring-box" key="hardware"
+                            :class="{ 'is-hw-expanded': isHardwareExpanded }"
                             @click="expandHardware" style="cursor: pointer;">
                             <svg viewBox="0 0 36 36" class="hw-ring-svg">
                                 <!-- 背景圆环 -->
@@ -152,14 +153,17 @@
                                         style="transition: stroke-dasharray 0.5s ease;" />
                                 </template>
                             </svg>
-                            <span class="hw-ring-label" v-if="hwMode !== 'dual'">
-                                <span class="hw-metric-name">{{ hwActiveMetric === 'cpu' ? 'CPU' : 'RAM' }}</span>
-                                <span class="hw-metric-val" :class="{ 'high': hwRingPct >= 80 }">{{ Math.round(hwRingPct) }}%</span>
-                            </span>
-                            <span class="hw-ring-label hw-dual-label" v-else>
-                                <span class="hw-dual-item" :class="{ 'high': hwCpuPct >= 80 }">C{{ Math.round(hwCpuPct) }}</span>
-                                <span class="hw-dual-item" :class="{ 'high': hwMemPct >= 80 }">M{{ Math.round(hwMemPct) }}</span>
-                            </span>
+                            <!-- 折叠态才显示标签文字，展开态只保留圆环（避免与右侧 CPU/RAM 详情重叠） -->
+                            <template v-if="!isHardwareExpanded">
+                                <span class="hw-ring-label" v-if="hwMode !== 'dual'">
+                                    <span class="hw-metric-name">{{ hwActiveMetric === 'cpu' ? 'CPU' : 'RAM' }}</span>
+                                    <span class="hw-metric-val" :class="{ 'high': hwRingPct >= 80 }">{{ Math.round(hwRingPct) }}%</span>
+                                </span>
+                                <span class="hw-ring-label hw-dual-label" v-else>
+                                    <span class="hw-dual-item" :class="{ 'high': hwCpuPct >= 80 }">C{{ Math.round(hwCpuPct) }}</span>
+                                    <span class="hw-dual-item" :class="{ 'high': hwMemPct >= 80 }">M{{ Math.round(hwMemPct) }}</span>
+                                </span>
+                            </template>
                         </div>
 
                         <div v-else-if="displayMusic" class="music-ctl-box" :class="{ 'expanded': isMusicExpanded }"
@@ -2841,6 +2845,12 @@ onUnmounted(() => {
     gap: 10px;
 }
 
+/* 展开态：圆环左移到最左侧（与音乐专辑封面一致），只保留圆环图标 */
+.hardware-ring-box.is-hw-expanded {
+    padding-left: 5px;
+    width: auto;
+}
+
 .hw-ring-svg {
     width: 30px;
     height: 30px;
@@ -2894,7 +2904,7 @@ onUnmounted(() => {
     position: relative;
     width: 100%;
     height: 100%;
-    padding-left: 16px;
+    padding-left: 50px;
     padding-right: 34px;
 }
 
