@@ -9,7 +9,7 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, TrySendError};
-use tauri::{State, Manager, Emitter, WebviewWindowBuilder, WebviewUrl};
+use tauri::{Manager, Emitter, WebviewWindowBuilder, WebviewUrl};
 use sysinfo::{Networks, System};
 use std::time::{Duration, Instant};
 use tauri_plugin_autostart::MacosLauncher;
@@ -286,9 +286,12 @@ async fn start_island_animation(
     Ok(())
 }
 
-// 新增：网速差值计算的缓存（硬件监控线程内部使用）
+// 网速原子缓存：硬件监控线程写入，get_network_stats / get_hardware_stats 零阻塞读取
+// 消除 AppState Networks 的双份刷新，降低长时间运行后的 CPU 爬坡
 static HW_LAST_RX: AtomicU64 = AtomicU64::new(0);
 static HW_LAST_TX: AtomicU64 = AtomicU64::new(0);
+static HW_TOTAL_RX: AtomicU64 = AtomicU64::new(0);
+static HW_TOTAL_TX: AtomicU64 = AtomicU64::new(0);
 static HW_EMIT_ENABLED: AtomicBool = AtomicBool::new(true);
 
 // B1 后台线程：每 1s 刷新 CPU / 内存统计，写入原子变量供 command 零阻塞读取
@@ -298,6 +301,7 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
         let mut sys = System::new();
         let mut networks = Networks::new_with_refreshed_list();
         let mut last_emit = std::time::Instant::now();
+        let mut tick_count: u64 = 0; // 计数器：定期重建 Networks 防止内部 hash 膨胀
         // 首次刷新建立 CPU 基线
         sys.refresh_cpu_usage();
         std::thread::sleep(Duration::from_millis(200));
@@ -320,6 +324,14 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
 
             // 刷新网络统计并计算差值
             networks.refresh();
+            // 每小时重建一次 Networks 对象，防止长期运行后虚拟网卡增删导致内部 hash 膨胀
+            tick_count += 1;
+            if tick_count % 3600 == 0 {
+                networks = Networks::new_with_refreshed_list();
+                // 重置累计缓存避免重建后首次速度计算出现异常负值
+                HW_LAST_RX.store(0, Ordering::Relaxed);
+                HW_LAST_TX.store(0, Ordering::Relaxed);
+            }
             let mut total_rx: u64 = 0;
             let mut total_tx: u64 = 0;
             for (_name, data) in networks.iter() {
@@ -338,9 +350,11 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
             };
             HW_LAST_RX.store(total_rx, Ordering::Relaxed);
             HW_LAST_TX.store(total_tx, Ordering::Relaxed);
+            HW_TOTAL_RX.store(total_rx, Ordering::Relaxed);
+            HW_TOTAL_TX.store(total_tx, Ordering::Relaxed);
 
-            // 每 2s 推送 monitor-stats 事件（带容错，widget 窗口未就绪时跳过）
-            if last_emit.elapsed() >= Duration::from_secs(2) && HW_EMIT_ENABLED.load(Ordering::Relaxed) {
+            // 每 2s 推送 monitor-stats 事件（始终推送，控制台图表依赖此事件）
+            if last_emit.elapsed() >= Duration::from_secs(2) {
                 let payload = serde_json::json!({
                     "upload_speed": tx_speed,
                     "download_speed": rx_speed,
@@ -358,14 +372,10 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
     });
 }
 
-// 新增：控制硬件监控事件推送开关
+// 控制硬件监控事件推送开关（保留命令以维持 API 兼容，但当前始终推送）
 #[tauri::command]
 fn set_hardware_emit(enabled: bool) {
     HW_EMIT_ENABLED.store(enabled, Ordering::Relaxed);
-}
-
-struct AppState {
-    networks: Mutex<Networks>,
 }
 
 #[tauri::command]
@@ -378,19 +388,12 @@ fn get_hardware_stats() -> (f32, u64, u64) {
 }
 
 #[tauri::command]
-fn get_network_stats(state: State<'_, AppState>) -> (u64, u64) {
-    let mut networks = state.networks.lock().unwrap();
-    networks.refresh();
-
-    let mut total_rx = 0;
-    let mut total_tx = 0;
-
-    for (_interface_name, data) in networks.iter() {
-        total_rx += data.total_received();
-        total_tx += data.total_transmitted();
-    }
-
-    (total_rx, total_tx)
+fn get_network_stats() -> (u64, u64) {
+    // 直接从硬件监控线程的原子缓存读取，消除双份 Networks 刷新
+    (
+        HW_TOTAL_RX.load(Ordering::Relaxed),
+        HW_TOTAL_TX.load(Ordering::Relaxed),
+    )
 }
 
 #[tauri::command]
@@ -457,13 +460,10 @@ fn recreate_main_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let networks = Networks::new_with_refreshed_list();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
-        .manage(AppState { networks: Mutex::new(networks) })
         .invoke_handler(tauri::generate_handler![
             get_network_stats,
             is_widget_visible,

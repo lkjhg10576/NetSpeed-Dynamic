@@ -16,21 +16,27 @@ static POMO_TOTAL_CYCLES: AtomicU32 = AtomicU32::new(0);
 static POMO_PHASE: AtomicU32 = AtomicU32::new(0);           // 0=focus, 1=break
 static POMO_PHASE_TOTAL_SECS: AtomicU32 = AtomicU32::new(0);
 
-/// 启动后台番茄钟线程（每秒 tick）
+/// 启动后台番茄钟线程（每秒 tick，空闲时降低唤醒频率以节省 CPU）
 pub fn start_pomodoro_thread(app_handle: AppHandle) {
     thread::spawn(move || {
+        let mut was_inactive = false; // 追踪空闲状态，避免重复 emit
         loop {
-            thread::sleep(Duration::from_millis(1000));
-
             let active = POMO_ACTIVE.load(Ordering::Relaxed);
             if !active {
-                // 未激活时发送一次 idle 事件告知前端
-                let _ = app_handle.emit("pomodoro-tick", serde_json::json!({
-                    "active": false,
-                    "phase": "idle",
-                }));
+                // 空闲时仅在状态切换时发送一次 idle 事件，然后延长休眠
+                if !was_inactive {
+                    let _ = app_handle.emit("pomodoro-tick", serde_json::json!({
+                        "active": false,
+                        "phase": "idle",
+                    }));
+                    was_inactive = true;
+                }
+                // 空闲时延长休眠到 5 秒，大幅降低线程唤醒频率
+                thread::sleep(Duration::from_millis(5000));
                 continue;
             }
+            was_inactive = false;
+            thread::sleep(Duration::from_millis(1000));
 
             let paused = POMO_PAUSED.load(Ordering::Relaxed);
             if paused {

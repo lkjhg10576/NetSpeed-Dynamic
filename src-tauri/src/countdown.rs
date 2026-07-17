@@ -22,23 +22,29 @@ fn play_exclamation_sound() {
     });
 }
 
-/// 启动后台倒计时线程（每秒 tick）
+/// 启动后台倒计时线程（每秒 tick，空闲时降低唤醒频率以节省 CPU）
 pub fn start_countdown_thread(app_handle: AppHandle) {
     thread::spawn(move || {
+        let mut was_idle = false; // 追踪空闲状态，避免重复 emit
         loop {
-            thread::sleep(Duration::from_millis(1000));
-
             let active = CD_ACTIVE.load(Ordering::Relaxed);
             let playing_sound = CD_PLAYING_SOUND.load(Ordering::Relaxed);
 
             if !active && !playing_sound {
-                // 未激活且没在播放提示音时发送 idle 事件
-                let _ = app_handle.emit("countdown-tick", serde_json::json!({
-                    "active": false,
-                    "phase": "idle",
-                }));
+                // 空闲时仅在状态切换时发送一次 idle 事件，然后延长休眠
+                if !was_idle {
+                    let _ = app_handle.emit("countdown-tick", serde_json::json!({
+                        "active": false,
+                        "phase": "idle",
+                    }));
+                    was_idle = true;
+                }
+                // 空闲时延长休眠到 5 秒，大幅降低线程唤醒频率
+                thread::sleep(Duration::from_millis(5000));
                 continue;
             }
+            was_idle = false;
+            thread::sleep(Duration::from_millis(1000));
 
             // 如果正在播放提示音，等待播放完成
             if playing_sound {
