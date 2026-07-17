@@ -1,12 +1,12 @@
-# NetSpeed Dynamic Plus（NSD Plus）
+# Music Dynamic Island（MDI）
 
-> **关于本版本**：NSD Plus 由 **NSD Pro** 扩展而来。NSD 即 *NetSpeed Dynamic Pro* 的缩写，是在原版基础之上不断增强的衍生版本。
+> **关于本版本**：Music Dynamic Island（简称 **MDI**）由 **鲫鱼 NSD Pro（NetSpeed Dynamic Pro）** 衍生而来。NSD 即 *NetSpeed Dynamic Pro* 的缩写；本分支在项目原版基础上将重心转向“音乐岛”模式，并做了大量音乐相关优化。
 
 <div align="center">
 
 <img src="./src/assets/logo.png" alt="音乐控制器" width="200" />
 
-**NetSpeed Dynamic Plus** —— 专为 Windows 而生的灵动岛
+**Music Dynamic Island** —— 专为 Windows 而生的灵动岛
 
 [![Tauri](https://img.shields.io/badge/Tauri-2.x-blue?logo=tauri)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange?logo=rust)](https://rust-lang.org)
@@ -137,7 +137,7 @@
 ## 项目结构
 
 ```
-NetSpeed-Dynamic/
+Music-Dynamic-Island/
 ├── src/                          # 前端源码（Vue 3 + TypeScript）
 │   ├── main.ts                   # 应用入口
 │   ├── App.vue                   # 根组件
@@ -190,8 +190,8 @@ NetSpeed-Dynamic/
 ### 安装与运行
 
 ```bash
-git clone https://github.com/lkjhg10576/NetSpeed-Dynamic.git
-cd NetSpeed-Dynamic
+git clone https://github.com/lkjhg10576/Music_Dynamic_Island.git
+cd Music_Dynamic_Island
 npm install
 npm run tauri dev
 ```
@@ -222,11 +222,11 @@ Apache License 2.0
 
 Copyright (c) 2026 lkjhg10576
 
-本项目（NetSpeed Dynamic Plus / NSD Plus）基于 **NetSpeed Dynamic Pro（NSD Pro）** 衍生开发：原项目由 Ryen (GEORGEWU) 以 MIT 协议开源，其 MIT 许可正文已保留在 [LICENSE.md](./LICENSE.md) 前部；本衍生版本（含全部新增与修改）采用 Apache License 2.0 重新授权，版权归 lkjhg10576 所有。完整许可证文本见 [LICENSE.md](./LICENSE.md)。
+本项目（Music Dynamic Island / MDI）基于 **NetSpeed Dynamic Pro（鲫鱼 NSD Pro）** 衍生开发：原项目由 Ryen (GEORGEWU) 以 MIT 协议开源，其 MIT 许可正文已保留在 [LICENSE.md](./LICENSE.md) 前部；本衍生版本（含全部新增与修改）采用 Apache License 2.0 重新授权，版权归 lkjhg10576 所有。完整许可证文本见 [LICENSE.md](./LICENSE.md)。
 
 ## 捐赠
 
-如果 NSD 对你有帮助，欢迎请作者喝杯咖啡！
+如果 MDI 对你有帮助，欢迎请作者喝杯咖啡！
 
 | 方式 | 信息 |
 |------|------|
