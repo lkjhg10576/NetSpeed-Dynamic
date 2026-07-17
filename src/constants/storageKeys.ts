@@ -12,7 +12,6 @@ export const NSD_ISLAND_POSITION = 'nsd_island_position';
 // 功能开关
 export const NSD_MUSIC_CTRL = 'nsd_music_ctrl';
 export const NSD_GLOW_BORDER = 'nsd_glow_border';
-export const NSD_HARDWARE_MON = 'nsd_hardware_mon';
 export const NSD_MSG_NOTIFY = 'nsd_msg_notify';
 export const NSD_MSG_MODE = 'nsd_msg_mode';
 export const NSD_ROTATION_MODE = 'nsd_rotation_mode';
