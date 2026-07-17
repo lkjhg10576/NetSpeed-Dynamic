@@ -698,10 +698,7 @@ onMounted(async () => {
         if (typeof p.mem_pct === 'number') hwMemPct.value = p.mem_pct;
     });
 
-    // 初始化时同步硬件 emit 开关
-    try {
-        await invoke('set_hardware_emit', { enabled: hwEnabled.value });
-    } catch (_e) {}
+    // 硬件监控后台始终推送 monitor-stats，前端不再控制 emit 开关
 
     nextTick(() => { checkScroll(); });
     window.addEventListener('resize', checkScroll);

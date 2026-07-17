@@ -2462,8 +2462,7 @@ onMounted(async () => {
         }
     }, 5000);
 
-    // 在挂载时通知后端是否 emit（仅当硬件监控开启时推送）
-    invoke('set_hardware_emit', { enabled: hwEnabled.value }).catch(() => {});
+    // 硬件监控后台始终推送 monitor-stats，前端不再控制 emit 开关
 
     // 硬件监控轮换模式启动定时器
     if (hwEnabled.value && hwMode.value === 'rotation') {
