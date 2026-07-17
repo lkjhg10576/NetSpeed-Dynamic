@@ -810,6 +810,7 @@ let lastRx = 0;
 let lastTx = 0;
 let speedTimer: number;
 let systemThemeMedia: MediaQueryList;
+let unlistenMonitorStats: (() => void) | null = null;
 
 const speedChartRef = ref<InstanceType<typeof SpeedChart> | null>(null);
 const chartDataQueue = ref<number[]>(Array(15).fill(0));
@@ -1087,7 +1088,7 @@ onMounted(async () => {
     systemThemeMedia.addEventListener('change', handleSystemThemeUpdate);
 
     // 监听后端推送的 monitor-stats 事件（硬件 + 网速统一）
-    await listen<any>('monitor-stats', (event) => {
+    unlistenMonitorStats = await listen<any>('monitor-stats', (event) => {
         const p = event.payload;
         // 网速数据
         if (typeof p.download_speed === 'number') {
@@ -1196,6 +1197,7 @@ onMounted(async () => {
 onUnmounted(() => {
     clearInterval(speedTimer);
     systemThemeMedia?.removeEventListener('change', handleSystemThemeUpdate);
+    if (unlistenMonitorStats) unlistenMonitorStats();
     localStorage.setItem(NSD_TRAFFIC_STATS, JSON.stringify(trafficData.value));
 });
 
