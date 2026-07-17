@@ -302,6 +302,10 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
         let mut networks = Networks::new_with_refreshed_list();
         let mut last_emit = std::time::Instant::now();
         let mut tick_count: u64 = 0; // 计数器：定期重建 Networks 防止内部 hash 膨胀
+        // 跨推送周期累计网速样本，推送时取均值，使显示更连贯（避免单 1s 快照跳变）
+        let mut pending_rx: u64 = 0;
+        let mut pending_tx: u64 = 0;
+        let mut sample_count: u64 = 0;
         // 首次刷新建立 CPU 基线
         sys.refresh_cpu_usage();
         std::thread::sleep(Duration::from_millis(200));
@@ -353,11 +357,19 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
             HW_TOTAL_RX.store(total_rx, Ordering::Relaxed);
             HW_TOTAL_TX.store(total_tx, Ordering::Relaxed);
 
+            // 累计本推送周期内的网速样本（每 1s 一次）
+            pending_rx += rx_speed;
+            pending_tx += tx_speed;
+            sample_count += 1;
+
             // 每 2s 推送 monitor-stats 事件（始终推送，控制台图表依赖此事件）
             if last_emit.elapsed() >= Duration::from_secs(2) {
+                // 取推送周期内的平均速度（字节/秒），使网速显示更连贯、更具代表性
+                let avg_rx = if sample_count > 0 { pending_rx / sample_count } else { 0 };
+                let avg_tx = if sample_count > 0 { pending_tx / sample_count } else { 0 };
                 let payload = serde_json::json!({
-                    "upload_speed": tx_speed,
-                    "download_speed": rx_speed,
+                    "upload_speed": avg_tx,
+                    "download_speed": avg_rx,
                     "cpu_pct": cpu_pct,
                     "mem_pct": mem_pct,
                     "used_mem": used_mem,
@@ -367,6 +379,9 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
                 });
                 let _ = app_handle.emit("monitor-stats", payload);
                 last_emit = std::time::Instant::now();
+                pending_rx = 0;
+                pending_tx = 0;
+                sample_count = 0;
             }
 
             std::thread::sleep(Duration::from_secs(1));
