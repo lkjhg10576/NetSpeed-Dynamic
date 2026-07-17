@@ -805,23 +805,31 @@ watch([displaySpeed, displayMusic, showPomodoroText, showCountdownText, showHard
 
 // 专门用于控制右侧常驻指示灯的独立计算属性（完全不受消息通知打断�?
 const showSpectrumIndicator = computed(() => {
+    // 拆分模式（音乐 + 附属圆环）下由附属圆环代替频谱，避免两者在右侧重叠冲突
+    if (isSplitMode.value) return false;
     return isRotationEnabled.value ? currentRotIndex.value === 1 : isMusicCtlEnabled.value;
 });
 
 // 频谱开关状态追踪，避免重复调用后端
 let isSpectrumActive = false;
 
-// 按需启停音频频谱捕获：仅在前端需要显示频谱时才激活后�?FFT 运算，空闲时�?CPU 零分�?
-watch([isPlaying, showSpectrumIndicator], () => {
-    const shouldActivate = isPlaying.value && showSpectrumIndicator.value;
+// 按需启停音频频谱捕获：音乐控制器模式开启且灵动岛可见时即激活后端 FFT。
+// 改为以「音乐模式 + 可见」为启停条件（而非 isPlaying）：
+//   1. 暂停时捕获仍在运行，但因无音频会自动回落到静默基准线（0.35），频谱条平滑归位，
+//      彻底修复旧轮询逻辑移除后「暂停/切歌后频谱条卡死在最后高度」的回归；
+//   2. 配合 immediate，窗口重建（省内存模式）后立刻恢复，无需等待下一次音乐轮询。
+watch([showSpectrumIndicator, isIslandVisible], () => {
+    const shouldActivate = showSpectrumIndicator.value && isIslandVisible.value;
     if (shouldActivate && !isSpectrumActive) {
         isSpectrumActive = true;
         invoke('set_spectrum_active', { active: true }).catch(() => {});
     } else if (!shouldActivate && isSpectrumActive) {
         isSpectrumActive = false;
         invoke('set_spectrum_active', { active: false }).catch(() => {});
+        // 关闭捕获时复位到静默基准线，避免残留上一首歌曲的波形
+        spectrumData.value = [0.35, 0.35, 0.35, 0.35, 0.35];
     }
-});
+}, { immediate: true });
 
 const startRotation = () => {
     if (rotationTimer) clearInterval(rotationTimer);
