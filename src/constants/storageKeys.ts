@@ -61,3 +61,6 @@ export const NSD_SITTING_REMINDER_ENABLED = 'nsd_sitting_reminder_enabled';
 export const NSD_SITTING_REMINDER_SECS = 'nsd_sitting_reminder_secs';
 export const NSD_WATER_REMINDER_ENABLED = 'nsd_water_reminder_enabled';
 export const NSD_WATER_REMINDER_SECS = 'nsd_water_reminder_secs';
+
+// 实时活动优先级映射（多活动并行时的显示顺序）。值示例: {"pomodoro":1,"countdown":2,"hardware":3,"health":4}
+export const NSD_ACTIVITY_PRIORITY = 'nsd_activity_priority';

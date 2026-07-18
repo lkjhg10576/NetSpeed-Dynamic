@@ -131,7 +131,7 @@
 
                         <div v-else-if="showHardwareRing" class="hardware-ring-box" key="hardware"
                             :class="{ 'is-hw-expanded': isHardwareExpanded }"
-                            @click="expandHardware" style="cursor: pointer;">
+                            @click.stop="() => clickRtChip('hardware')" style="cursor: pointer;">
                             <svg viewBox="0 0 36 36" class="hw-ring-svg">
                                 <!-- 背景圆环 -->
                                 <circle cx="18" cy="18" r="14" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3" />
@@ -280,7 +280,7 @@
                     </div>
 
                     <!-- 番茄钟展开态：关闭 -->
-                    <div v-else-if="isPomodoroExpanded" class="island-close-btn" @click.stop="isPomodoroExpanded = false; handlePomoClose()" key="close-btn">
+                    <div v-else-if="isPomodoroExpanded" class="island-close-btn" @click.stop="handlePomoClose()" key="close-btn">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round">
                             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -327,54 +327,13 @@
                 </div>
 
                 <transition name="pop">
-                    <div class="right-circle" :style="coreContentStyle" v-if="isPomodoroVisible && isMusicCtlEnabled && !isPomodoroExpanded && !isMsgActive && !displaySysToast && !isHealthAlerting && !isMusicExpanded && !isMusicExpanding"
-                        @click.stop="isPomodoroExpanded = true" style="cursor: pointer;">
-                        <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <polyline points="12 6 12 12 16 14"></polyline>
-                        </svg>
-                    </div>
-
-                    <!-- 倒计时右侧圆钮（灵动岛拆分模式 + 倒计时可见 + 音乐控制器开启 + 倒计时未展开） -->
-                    <div class="right-circle cd-right-circle" :style="coreContentStyle"
-                        v-if="isCountdownVisible && isMusicCtlEnabled && !isCountdownExpanded && !isMsgActive && !displaySysToast && !isHealthAlerting && !isMusicExpanded && !isMusicExpanding"
-                        @click.stop="isCountdownExpanded = true" style="cursor: pointer;">
-                        <svg viewBox="0 0 24 24" class="countdown-svg" fill="none" stroke="currentColor" stroke-width="2"
-                            stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
-                            <circle cx="12" cy="12" r="10"></circle>
-                            <polyline points="12 6 12 12 16 14"></polyline>
-                        </svg>
-                    </div>
-
-                    <!-- 硬件监控右侧圆钮（灵动岛拆分模式 + 硬件监控开启 + 未展开） -->
-                    <div class="right-circle hw-right-circle" :style="coreContentStyle"
-                        v-if="isHwAccessoryVisible"
-                        @click.stop="expandHardware" style="cursor: pointer;">
-                        <svg viewBox="0 0 28 28" class="hw-ring-mini-svg"
-                            fill="none" style="position: relative; z-index: 2;">
-                            <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2.5" />
-                            <template v-if="hwMode === 'dual'">
-                                <circle cx="14" cy="14" r="11" fill="none"
-                                    :stroke="hwCpuPct >= 80 ? '#a855f7' : '#ffffff'" stroke-width="2.5"
-                                    :stroke-dasharray="`${(hwCpuPct / 100) * 69.12} 69.12`"
-                                    stroke-linecap="round" transform="rotate(-90 14 14)"
-                                    style="transition: stroke-dasharray 0.5s ease;" />
-                                <circle cx="14" cy="14" r="6" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="2" />
-                                <circle cx="14" cy="14" r="6" fill="none"
-                                    :stroke="hwMemPct >= 80 ? '#ff4757' : '#3b82f6'" stroke-width="2"
-                                    :stroke-dasharray="`${(hwMemPct / 100) * 37.7} 37.7`"
-                                    stroke-linecap="round" transform="rotate(-90 14 14)"
-                                    style="transition: stroke-dasharray 0.5s ease;" />
-                            </template>
-                            <template v-else>
-                                <circle cx="14" cy="14" r="11" fill="none"
-                                    :stroke="hwRingColor" stroke-width="2.5"
-                                    :stroke-dasharray="`${(hwRingPct / 100) * 69.12} 69.12`"
-                                    stroke-linecap="round" transform="rotate(-90 14 14)"
-                                    style="transition: stroke-dasharray 0.5s ease;" />
-                            </template>
-                        </svg>
+                    <!-- 多实时活动并行：单一常驻小图标（候选集按 priority 排序，点击展开当前预览活动 + 轮换到下一个） -->
+                    <div class="right-circle rt-chip"
+                        v-if="showRtChip"
+                        @click.stop="clickRtChip()"
+                        :style="{ ...coreContentStyle, color: rtActivities[currentRtIndex]?.accent || '#ffffff', cursor: 'pointer' }"
+                        :title="rtActivities[currentRtIndex] ? ('点击展开：' + rtActivities[currentRtIndex].id) : ''">
+                        <span class="rt-chip-icon" v-html="rtActivities[currentRtIndex]?.icon || ''"></span>
                     </div>
                 </transition>
             </div>
@@ -408,6 +367,7 @@ import {
     NSD_HW_ENABLED,
     NSD_HW_MODE,
     NSD_HW_DEFAULT_METRIC,
+    NSD_ACTIVITY_PRIORITY,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
@@ -479,20 +439,178 @@ const isSplitMode = computed(() => {
         || hwEnabled.value && isMusicCtlEnabled.value && !isHardwareExpanded.value;
 });
 
-// 硬件监控附属图标可见性（镜像倒计时：音乐控制器开启 + 硬件监控开启 + 未展开）
-const isHwAccessoryVisible = computed(() => {
-    if (isMsgActive.value || displaySysToast.value || isMusicExpanded.value || isMusicExpanding.value) return false;
-    if (!hwEnabled.value || !isMusicCtlEnabled.value || isHardwareExpanded.value) return false;
+// 硬件监控附属图标可见性已合并到 showRtChip（多活动并行轮换），原 isHwAccessoryVisible 不再单独使用
+
+// ===== 多实时活动并行：单图标轮换 + 点击展开 + X 回退 =====
+// RT_IDS: 参与轮换的四种实时活动 id（顺序固定，作为 priority 平局时的稳定排序键）
+const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health'] as const;
+type RtId = typeof RT_IDS[number];
+
+// 各活动的图标与配色（与 LiveActive 的 activities 对应保持一致）
+const RT_META: Record<RtId, { icon: string; accent: string }> = {
+    pomodoro: {
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>',
+        accent: '#ff4757',
+    },
+    countdown: {
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>',
+        accent: '#ff9800',
+    },
+    hardware: {
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="9" y="9" width="6" height="6" /><line x1="9" y1="1" x2="9" y2="4" /><line x1="15" y1="1" x2="15" y2="4" /><line x1="9" y1="20" x2="9" y2="23" /><line x1="15" y1="20" x2="15" y2="23" /><line x1="20" y1="9" x2="23" y2="9" /><line x1="20" y1="14" x2="23" y2="14" /><line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" /></svg>',
+        accent: '#3b82f6',
+    },
+    health: {
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>',
+        accent: '#10b981',
+    },
+};
+
+// 跨窗口同步来的配置（由 LiveActive emit('control-activity-config') 推送；启动时也从 localStorage 兜底读取）
+const activityConfig = ref<Record<string, { enabled: boolean; priority: number }>>({});
+
+// 各活动的"当前活跃"谓词（沿用现有事件驱动标志）
+const rtActive = computed(() => ({
+    pomodoro: isPomodoroVisible.value,
+    countdown: isCountdownVisible.value,
+    hardware: hwEnabled.value,            // 硬件"活跃" = 监控开启
+    health:   isHealthAlerting.value,
+}));
+
+// 候选集（enabled && active，按 priority 升序 + 固定顺序平局打破）
+const rtActivities = computed(() => {
+    return RT_IDS
+        .filter(id => activityConfig.value[id]?.enabled && rtActive.value[id])
+        .map(id => ({ id, priority: activityConfig.value[id].priority, ...RT_META[id] }))
+        .sort((a, b) => {
+            const pa = a.priority, pb = b.priority;
+            return pa !== pb ? pa - pb : RT_IDS.indexOf(a.id as RtId) - RT_IDS.indexOf(b.id as RtId);
+        });
+});
+
+// 当前小图标指向的候选下标；展开后预览的下一个活动下标
+const currentRtIndex = ref(0);
+// 当前展开的活动 id（null = 未展开任何实时活动）
+const expandedRtId = ref<string | null>(null);
+// 展开瞬间快照：决定 X 关闭后还原到音乐岛还是独立小图标态
+const previousContext = ref<'music' | 'chip'>('chip');
+
+// 小图标是否显示：有候选 且 (未展开 或 展开的不是当前预览活动)
+// 同时排除：消息通知 / 系统 toast / 健康提醒"独占态"（健康提醒 active 时本身就有专属岛态，无需小图标）
+// 注意：hardware 候选时若环已在主岛显示，视觉上会与小图标并存；用户点击环或小图标均可展开 hardware 详情（功能等价）
+const showRtChip = computed(() => {
+    if (rtActivities.value.length === 0) return false;
+    const previewId = rtActivities.value[currentRtIndex.value]?.id;
+    if (expandedRtId.value && expandedRtId.value === previewId) return false;
+    // 健康提醒"alerting"独占岛态时，不显示小图标（避免重复）
+    if (isHealthAlerting.value && expandedRtId.value !== 'health') return false;
     return true;
 });
 
-// 关闭番茄钟展开（恢复岛尺寸）
+// 当前预览（最右小图标所代表）的活动 id（rtActivities[currentRtIndex]?.id 的快捷访问）
+// 注：直接在 template / 计算属性中用 rtActivities[currentRtIndex]?.id，不再单独声明计算属性
+
+// 点击小图标展开当前预览活动；若传入 targetId（如硬件环点击），则展开指定活动
+// 同时推进 currentRtIndex 到下一个候选（用于下次小图标显示）
+function clickRtChip(targetId?: string) {
+    const list = rtActivities.value;
+    if (!list.length) return;
+    let idx: number;
+    if (targetId) {
+        idx = list.findIndex(a => a.id === targetId);
+        if (idx < 0) {
+            // targetId 不在候选集中（如用户未在控制台启用该活动），但仍允许展开（兜底）
+            expandedRtId.value = targetId;
+            previousContext.value = isPlaying.value ? 'music' : 'chip';
+            if (targetId === 'hardware') expandHardware();
+            return;
+        }
+    } else {
+        idx = currentRtIndex.value % list.length;
+    }
+    const target = list[idx];
+    previousContext.value = isPlaying.value ? 'music' : 'chip';
+    // 推进到下一个候选（下次小图标显示）
+    currentRtIndex.value = (idx + 1) % list.length;
+    // 触发展开
+    expandedRtId.value = target.id;
+    if (target.id === 'hardware') {
+        expandHardware();
+    } else if (target.id === 'pomodoro') {
+        isPomodoroExpanded.value = true;
+        const { h } = getBaseSize();
+        animateIslandSize(currentWidth.value + 80, h);
+    } else if (target.id === 'countdown') {
+        isCountdownExpanded.value = true;
+        const { h } = getBaseSize();
+        animateIslandSize(currentWidth.value + 80, h);
+    }
+    // 'health' 无需手动展开（alerting 时由 health-reminder-tick 自动驱动 isHealthAlerting）
+}
+
+function revertRealtime() {
+    expandedRtId.value = null;
+    // previousContext 决定还原到音乐岛或独立小图标态（chip 由 showRtChip 自然恢复）
+    // 维持现有自动隐藏行为
+    scheduleAutoHide();
+}
+
+// 候选集收缩保护：若 expandedRtId 已不在候选集，则回退
+watch(rtActivities, (list) => {
+    if (expandedRtId.value && !list.find(a => a.id === expandedRtId.value)) {
+        revertRealtime();
+    }
+    // currentRtIndex 越界保护
+    if (list.length > 0 && currentRtIndex.value >= list.length) {
+        currentRtIndex.value = currentRtIndex.value % list.length;
+    }
+});
+
+// 启动时从 localStorage 读取优先级 map，初始化 activityConfig（与 LiveActive 推送双保险）
+function loadActivityConfigFromStorage() {
+    try {
+        const raw = localStorage.getItem(NSD_ACTIVITY_PRIORITY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                const map: Record<string, { enabled: boolean; priority: number }> = {};
+                for (const id of RT_IDS) {
+                    const entry = (parsed as Record<string, any>)[id];
+                    if (entry && typeof entry === 'object') {
+                        // 兼容两种存储格式：{ enabled, priority } 或纯 number（旧格式）
+                        if (typeof entry.enabled === 'boolean' && typeof entry.priority === 'number') {
+                            map[id] = { enabled: entry.enabled, priority: entry.priority };
+                        } else if (typeof entry === 'number') {
+                            map[id] = { enabled: rtActive.value[id], priority: entry };
+                        }
+                    }
+                }
+                activityConfig.value = map;
+                return;
+            }
+        }
+    } catch (_e) {}
+    // 兜底：默认 priority 按数组序，enabled 用当前活跃状态
+    const map: Record<string, { enabled: boolean; priority: number }> = {};
+    RT_IDS.forEach((id, idx) => {
+        map[id] = { enabled: rtActive.value[id], priority: idx + 1 };
+    });
+    activityConfig.value = map;
+}
+
+
+// 关闭番茄钟展开（恢复岛尺寸 + 统一回退 expandedRtId）
 const handlePomoClose = () => {
+    isPomodoroExpanded.value = false;
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
         const savedWidth = restoreIslandWidth();
         const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
         animateIslandSize(targetWidth, h);
+    }
+    // 统一回退：清除 expandedRtId + 维持自动隐藏
+    if (expandedRtId.value === 'pomodoro') {
+        revertRealtime();
     }
 };
 
@@ -511,6 +629,10 @@ const handleDismissHealthAlert = async () => {
         const savedWidth = restoreIslandWidth();
         const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
         animateIslandSize(targetWidth, h);
+    }
+    // 统一回退：清除 expandedRtId + 维持自动隐藏
+    if (expandedRtId.value === 'health') {
+        revertRealtime();
     }
 };
 
@@ -535,6 +657,10 @@ const handleCdClose = async () => {
             const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
             animateIslandSize(targetWidth, h);
         }
+        // 统一回退
+        if (expandedRtId.value === 'countdown') {
+            revertRealtime();
+        }
         return;
     }
     // 倒计时进行中 → 仅折叠展开态（与番茄钟行为一致），不停止倒计时
@@ -544,6 +670,10 @@ const handleCdClose = async () => {
         const savedWidth = restoreIslandWidth();
         const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
         animateIslandSize(targetWidth, h);
+    }
+    // 统一回退
+    if (expandedRtId.value === 'countdown') {
+        revertRealtime();
     }
 };
 
@@ -763,6 +893,8 @@ const expandHardware = () => {
     if (isHardwareExpanded.value) return;
     suppressContentWatch = true;
     isHardwareExpanded.value = true;
+    // 标记 hardware 为当前展开活动（previousContext 与 currentRtIndex 推进由 clickRtChip 统一处理）
+    expandedRtId.value = 'hardware';
     const { h } = getBaseSize();
     // 展开时增加宽度以容纳 CPU/RAM 详情
     animateIslandSize(currentWidth.value + 80, h);
@@ -773,11 +905,15 @@ const collapseHardware = () => {
     if (!isHardwareExpanded.value) return;
     suppressContentWatch = true;
     isHardwareExpanded.value = false;
+    // 同步多活动并行状态：清除 expandedRtId（统一回退路径）
+    expandedRtId.value = null;
     const { h } = getBaseSize();
     const savedWidth = restoreIslandWidth();
     const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
     animateIslandSize(targetWidth, h);
     setTimeout(() => { suppressContentWatch = false; }, 600);
+    // 维持自动隐藏行为
+    scheduleAutoHide();
 };
 
 // 音乐控制功能开�?
@@ -2153,10 +2289,13 @@ const getAppIcon = (appName: string) => {
 };
 
 onMounted(async () => {
-    // widget 可能在主面板未创建或省内存销毁后独立运行，需自行恢复目标播放器�?
+    // widget 可能在主面板未创建或省内存销毁后独立运行，需自行恢复目标播放器
     await invoke('set_target_player', {
         player: localStorage.getItem(NSD_TARGET_PLAYER) || 'netease',
     }).catch(() => {});
+
+    // 启动时从 localStorage 读取实时活动优先级配置（与 LiveActive 推送双保险）
+    loadActivityConfigFromStorage();
 
     window.addEventListener('blur', collapseMusic);
 
@@ -2305,6 +2444,7 @@ onMounted(async () => {
         const p = event.payload;
         if (p.active === false) {
             // 番茄钟结束 → 隐藏
+            const wasExpanded = expandedRtId.value === 'pomodoro';
             isPomodoroVisible.value = false;
             isPomodoroExpanded.value = false;
             localStorage.setItem(NSD_POMODORO_VISIBLE, 'false');
@@ -2313,6 +2453,10 @@ onMounted(async () => {
                 const savedWidth = restoreIslandWidth();
                 const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
                 animateIslandSize(targetWidth, h);
+            }
+            // 结束态自动回退：若展开的正是 pomodoro，触发回退（恢复 previousContext）
+            if (wasExpanded) {
+                revertRealtime();
             }
             return;
         }
@@ -2347,6 +2491,7 @@ onMounted(async () => {
     await listen<any>('countdown-tick', async (event) => {
         const p = event.payload;
         if (p.active === false && p.phase === 'idle') {
+            const wasExpanded = expandedRtId.value === 'countdown';
             isCountdownVisible.value = false;
             isCountdownExpanded.value = false;
             isCountdownFinished.value = false;
@@ -2357,6 +2502,10 @@ onMounted(async () => {
                 const savedWidth = restoreIslandWidth();
                 const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
                 animateIslandSize(targetWidth, h);
+            }
+            // 结束态自动回退：若展开的正是 countdown，触发回退
+            if (wasExpanded) {
+                revertRealtime();
             }
             return;
         }
@@ -2378,6 +2527,7 @@ onMounted(async () => {
     // 监听健康提醒 tick 事件
     await listen<any>('health-reminder-tick', async (event) => {
         const p = event.payload;
+        const wasAlerting = isHealthAlerting.value;
         // 处理久坐提醒
         if (p.sitting && p.sitting.alerting) {
             isHealthAlerting.value = true;
@@ -2394,6 +2544,14 @@ onMounted(async () => {
         if ((!p.sitting || !p.sitting.alerting) && (!p.water || !p.water.alerting)) {
             isHealthAlerting.value = false;
             healthAlertLabel.value = '';
+            // 结束态自动回退：若展开的正是 health，触发回退
+            if (wasAlerting && expandedRtId.value === 'health') {
+                revertRealtime();
+            }
+        } else if (!wasAlerting) {
+            // 新进入 alerting：标记 expandedRtId = 'health'（让小图标隐藏，避免重复）
+            // previousContext 不需快照（health 是后端驱动的展开，用户未点击）
+            expandedRtId.value = 'health';
         }
     });
 
@@ -2484,6 +2642,20 @@ onMounted(async () => {
         } else {
             stopHwRotation();
         }
+    });
+
+    // 监听来自 LiveActive 的实时活动配置（多活动并行轮换：enabled + priority）
+    await listen<Record<string, { enabled: boolean; priority: number }>>('control-activity-config', (event) => {
+        const p = event.payload || {};
+        // 合并到 activityConfig（事件优先，缺失的 id 保留原值）
+        const merged: Record<string, { enabled: boolean; priority: number }> = { ...activityConfig.value };
+        for (const id of RT_IDS) {
+            const entry = p[id];
+            if (entry && typeof entry.enabled === 'boolean' && typeof entry.priority === 'number') {
+                merged[id] = { enabled: entry.enabled, priority: entry.priority };
+            }
+        }
+        activityConfig.value = merged;
     });
 
     // 监听后端推送的 monitor-stats 事件（硬件 + 网速统一）
@@ -3753,6 +3925,36 @@ onUnmounted(() => {
     align-items: center;
     justify-content: center;
     box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+}
+
+/* 多实时活动并行：单一常驻小图标 */
+.rt-chip {
+    /* 继承 .right-circle 的定位与尺寸；color 由内联 style 设置为活动 accent */
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.rt-chip-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    position: relative;
+    z-index: 2;
+}
+
+.rt-chip-icon :deep(svg) {
+    width: 18px;
+    height: 18px;
+    /* stroke 使用 currentColor，自动继承 .rt-chip 的 color */
+}
+
+/* 音乐展开态下小图标右移避让（避免与频谱/进度条重叠） */
+.island-wrap.is-music-expanded .rt-chip,
+.island-wrap.is-music-expanding .rt-chip {
+    right: -2px;
+    transform: scale(0.85);
+    transform-origin: center;
 }
 
 .pop-enter-active,

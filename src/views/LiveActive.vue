@@ -61,8 +61,20 @@
                         </label>
                     </div>
                     <div class="hero-text">
-                        <h3>{{ item.title }}</h3>
-                        <p>{{ item.desc }}</p>
+                        <div class="hero-text-main">
+                            <h3>{{ item.title }}</h3>
+                            <p>{{ item.desc }}</p>
+                        </div>
+                        <div v-if="!item.disable" class="hero-priority-chip" @click.stop
+                            :title="'数字越小越优先显示（当前: ' + item.priority + '）'">
+                            <span class="priority-label">序</span>
+                            <input type="number" min="1" v-model.number="item.priority"
+                                @focus="focusedPriority = item.id" @blur="onPriorityBlur(item)"
+                                class="priority-input" />
+                        </div>
+                        <transition name="fade">
+                            <span v-if="focusedPriority === item.id" class="priority-hint">数字越小越优先</span>
+                        </transition>
                     </div>
                 </div>
 
@@ -398,7 +410,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { listen, emit } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import {
@@ -415,6 +427,7 @@ import {
     NSD_SITTING_REMINDER_SECS,
     NSD_WATER_REMINDER_ENABLED,
     NSD_WATER_REMINDER_SECS,
+    NSD_ACTIVITY_PRIORITY,
 } from '../constants/storageKeys';
 
 // ===== 三步设置状态 =====
@@ -692,7 +705,8 @@ const activities = ref([
         desc: '沉浸工作时间管理',
         accent: '#ff4757',
         enabled: false,
-        disable: false
+        disable: false,
+        priority: 1,
     },
     {
         id: 'countdown',
@@ -701,7 +715,8 @@ const activities = ref([
         desc: '自定义时长倒计时',
         accent: '#ff9800',
         enabled: false,
-        disable: false
+        disable: false,
+        priority: 2,
     },
     {
         id: 'hardware',
@@ -710,7 +725,8 @@ const activities = ref([
         desc: '实时监测处理器与内存',
         accent: '#3b82f6',
         enabled: false,
-        disable: false
+        disable: false,
+        priority: 3,
     },
     {
         id: 'health',
@@ -719,7 +735,8 @@ const activities = ref([
         desc: '久坐与喝水提醒',
         accent: '#10b981',
         enabled: false,
-        disable: false
+        disable: false,
+        priority: 4,
     },
     {
         id: 'sysmsg',
@@ -728,7 +745,8 @@ const activities = ref([
         desc: '实时捕捉软硬件生态变化',
         accent: '#ff4757',
         enabled: false,
-        disable: true
+        disable: true,
+        priority: 99,
     },
     {
         id: 'printer',
@@ -737,9 +755,76 @@ const activities = ref([
         desc: '批量打印进度状态',
         accent: '#ff4757',
         enabled: false,
-        disable: true
+        disable: true,
+        priority: 99,
     },
 ]);
+
+// ===== 实时活动优先级同步 =====
+// RT_IDS: 参与"多活动并行轮换"的四种实时活动 id（顺序固定，作为 priority 平局时的稳定排序键）
+const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health'] as const;
+
+// 当前正在编辑优先级的活动 id（用于显示提示文字）
+const focusedPriority = ref<string | null>(null);
+
+// 读取 NSD_ACTIVITY_PRIORITY 持久化的优先级 map
+function loadPriorityMap(): Record<string, number> {
+    try {
+        const raw = localStorage.getItem(NSD_ACTIVITY_PRIORITY);
+        if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === 'object') {
+                return parsed as Record<string, number>;
+            }
+        }
+    } catch (_e) {}
+    return {};
+}
+
+// 将 activities 中 RT_IDS 的 priority 持久化回 NSD_ACTIVITY_PRIORITY
+function persistPriorityMap() {
+    const map: Record<string, number> = {};
+    for (const id of RT_IDS) {
+        const item = activities.value.find(a => a.id === id);
+        if (item) map[id] = item.priority;
+    }
+    localStorage.setItem(NSD_ACTIVITY_PRIORITY, JSON.stringify(map));
+}
+
+// 动态构建 { id: { enabled, priority } } 配置 map
+// enabled 取自各活动的运行/启用状态（而非 activities[].enabled，因为 pomodoro/countdown/health 没有通用开关）
+function buildActivityConfig(): Record<string, { enabled: boolean; priority: number }> {
+    const map: Record<string, { enabled: boolean; priority: number }> = {};
+    const enabledMap: Record<string, boolean> = {
+        pomodoro: isPomoRunning.value,
+        countdown: cdRunning.value,
+        hardware: hwEnabled.value,
+        health: srEnabled.value || wrEnabled.value,
+    };
+    for (const id of RT_IDS) {
+        const item = activities.value.find(a => a.id === id);
+        if (item) {
+            map[id] = { enabled: enabledMap[id], priority: item.priority };
+        }
+    }
+    return map;
+}
+
+// 推送配置到灵动岛窗口
+function syncActivityConfig() {
+    try {
+        emit('control-activity-config', buildActivityConfig());
+    } catch (_e) {
+        // 忽略
+    }
+}
+
+// 优先级输入框失焦：持久化 + 推送
+function onPriorityBlur(_item: { id: string }) {
+    persistPriorityMap();
+    syncActivityConfig();
+}
+
 
 const activeId = ref('pomodoro');
 const trackRef = ref<HTMLElement | null>(null);
@@ -801,6 +886,14 @@ const handleCardClick = (id: string) => {
 };
 
 onMounted(async () => {
+    // 启动恢复：从 NSD_ACTIVITY_PRIORITY 回填各活动 priority
+    const savedPriority = loadPriorityMap();
+    for (const id of RT_IDS) {
+        const item = activities.value.find(a => a.id === id);
+        if (item && typeof savedPriority[id] === 'number') {
+            item.priority = savedPriority[id];
+        }
+    }
     // 监听后端番茄钟 tick 事件
     await listen<any>('pomodoro-tick', (event) => {
         const payload = event.payload;
@@ -925,6 +1018,14 @@ onMounted(async () => {
     }
 
     // 硬件监控后台始终推送 monitor-stats，前端不再控制 emit 开关
+
+    // 启动后向灵动岛推送一次活动配置（双保险：与 WidgetIsland 自身 onMounted 读 localStorage 互补）
+    syncActivityConfig();
+
+    // 监听各活动 enabled 状态变化，自动同步配置到灵动岛
+    watch([isPomoRunning, cdRunning, hwEnabled, srEnabled, wrEnabled], () => {
+        syncActivityConfig();
+    });
 
     nextTick(() => { checkScroll(); });
     window.addEventListener('resize', checkScroll);
@@ -1188,6 +1289,19 @@ onUnmounted(() => {
     transform: scale(1.1);
 }
 
+.hero-text {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 8px;
+    position: relative;
+}
+
+.hero-text-main {
+    flex: 1;
+    min-width: 0;
+}
+
 .hero-text h3 {
     margin: 0;
     font-size: 18px;
@@ -1204,6 +1318,66 @@ onUnmounted(() => {
     color: var(--subtitle-color);
     text-transform: uppercase;
     letter-spacing: 0.5px;
+}
+
+/* 优先级输入 chip */
+.hero-priority-chip {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    border-radius: 100px;
+    background: var(--control-bg, rgba(0, 0, 0, 0.04));
+    border: 1px solid var(--control-border, rgba(0, 0, 0, 0.06));
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.hero-priority-chip:hover {
+    border-color: var(--accent-color, #ccc);
+}
+
+.priority-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--item-desc-color, #888);
+    letter-spacing: 0.5px;
+}
+
+.priority-input {
+    width: 28px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: var(--h1-color, #1a1a1a);
+    font-size: 13px;
+    font-weight: 800;
+    text-align: center;
+    outline: none;
+    -moz-appearance: textfield;
+    appearance: textfield;
+}
+
+.priority-input::-webkit-outer-spin-button,
+.priority-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.priority-hint {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 4px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--h1-color, #1a1a1a);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
 }
 
 .card-body {
