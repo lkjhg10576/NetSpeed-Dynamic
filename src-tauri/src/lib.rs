@@ -3,6 +3,7 @@ mod music_controller;
 mod notification;
 mod pomodoro;
 mod countdown;
+mod health_reminder;
 mod system_events;
 
 use std::sync::Mutex;
@@ -526,6 +527,13 @@ pub fn run() {
             countdown::resume_countdown,
             countdown::stop_countdown,
             countdown::get_countdown_state,
+            health_reminder::start_sitting_reminder,
+            health_reminder::stop_sitting_reminder,
+            health_reminder::dismiss_sitting_alert,
+            health_reminder::start_water_reminder,
+            health_reminder::stop_water_reminder,
+            health_reminder::dismiss_water_alert,
+            health_reminder::get_health_reminder_state,
         ])
         .setup(|app| {
             // B8: 注册 AppHandle 到 audio_spectrum 模块，支持 emit 频谱事件
@@ -536,6 +544,7 @@ pub fn run() {
             system_events::start_monitor(app.handle().clone());
             pomodoro::start_pomodoro_thread(app.handle().clone());
             countdown::start_countdown_thread(app.handle().clone());
+            health_reminder::start_health_reminder_thread(app.handle().clone());
             start_hardware_monitor(app.handle().clone());
 
             // 全屏应用检测线程

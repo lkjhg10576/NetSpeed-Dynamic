@@ -98,6 +98,11 @@
                             <div class="toast-text">{{ sysToastText }}</div>
                         </div>
 
+                        <div v-else-if="isHealthAlerting" class="health-alert-box" key="health-alert">
+                            <span class="health-alert-icon">⏰</span>
+                            <span class="health-alert-text">{{ healthAlertLabel }}</span>
+                        </div>
+
                         <div v-else-if="showCountdownText" class="countdown-text-box" key="countdown">
                             <svg viewBox="0 0 24 24" class="countdown-svg"
                                 fill="none" stroke="currentColor" stroke-width="2"
@@ -283,6 +288,15 @@
                         </svg>
                     </div>
 
+                    <!-- 健康提醒关闭按钮 -->
+                    <div v-else-if="isHealthAlerting" class="island-close-btn" @click.stop="handleDismissHealthAlert" key="health-close">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                            stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </div>
+
                     <!-- 硬件监控展开态：CPU / 内存 详情 + 关闭 -->
                     <div v-else-if="isHardwareExpanded && hwEnabled" class="hw-expanded-detail" key="hw-detail">
                         <div class="hw-detail-row">
@@ -313,7 +327,7 @@
                 </div>
 
                 <transition name="pop">
-                    <div class="right-circle" :style="coreContentStyle" v-if="isPomodoroVisible && isMusicCtlEnabled && !isPomodoroExpanded && !isMsgActive && !displaySysToast && !isMusicExpanded && !isMusicExpanding"
+                    <div class="right-circle" :style="coreContentStyle" v-if="isPomodoroVisible && isMusicCtlEnabled && !isPomodoroExpanded && !isMsgActive && !displaySysToast && !isHealthAlerting && !isMusicExpanded && !isMusicExpanding"
                         @click.stop="isPomodoroExpanded = true" style="cursor: pointer;">
                         <svg viewBox="0 0 24 24" class="pomodoro-svg" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
@@ -324,7 +338,7 @@
 
                     <!-- 倒计时右侧圆钮（灵动岛拆分模式 + 倒计时可见 + 音乐控制器开启 + 倒计时未展开） -->
                     <div class="right-circle cd-right-circle" :style="coreContentStyle"
-                        v-if="isCountdownVisible && isMusicCtlEnabled && !isCountdownExpanded && !isMsgActive && !displaySysToast && !isMusicExpanded && !isMusicExpanding"
+                        v-if="isCountdownVisible && isMusicCtlEnabled && !isCountdownExpanded && !isMsgActive && !displaySysToast && !isHealthAlerting && !isMusicExpanded && !isMusicExpanding"
                         @click.stop="isCountdownExpanded = true" style="cursor: pointer;">
                         <svg viewBox="0 0 24 24" class="countdown-svg" fill="none" stroke="currentColor" stroke-width="2"
                             stroke-linecap="round" stroke-linejoin="round" style="position: relative; z-index: 2;">
@@ -413,6 +427,11 @@ const isCountdownExpanded = ref(false);
 const isCountdownFinished = ref(false);
 const cdPaused = ref(false);
 
+// 健康提醒相关变量（由后端 health-reminder-tick 事件驱动）
+const isHealthAlerting = ref(false);
+const healthAlertLabel = ref('');
+const healthAlertType = ref<'sitting' | 'water'>('sitting');
+
 // 全屏自动隐藏相关
 const isAutoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
 let wasVisibleBeforeFullscreen = false;
@@ -469,6 +488,24 @@ const isHwAccessoryVisible = computed(() => {
 
 // 关闭番茄钟展开（恢复岛尺寸）
 const handlePomoClose = () => {
+    if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+    }
+};
+
+// 关闭健康提醒
+const handleDismissHealthAlert = async () => {
+    if (healthAlertType.value === 'sitting') {
+        await invoke('dismiss_sitting_alert').catch(() => {});
+    } else {
+        await invoke('dismiss_water_alert').catch(() => {});
+    }
+    isHealthAlerting.value = false;
+    healthAlertLabel.value = '';
+    // 恢复岛尺寸
     if (!isMsgActive.value && !displaySysToast.value && !isMusicExpanded.value && !isMusicExpanding.value) {
         const { h } = getBaseSize();
         const savedWidth = restoreIslandWidth();
@@ -2338,6 +2375,28 @@ onMounted(async () => {
         showToast('⏰ 倒计时结束', 'app');
     });
 
+    // 监听健康提醒 tick 事件
+    await listen<any>('health-reminder-tick', async (event) => {
+        const p = event.payload;
+        // 处理久坐提醒
+        if (p.sitting && p.sitting.alerting) {
+            isHealthAlerting.value = true;
+            healthAlertLabel.value = p.sitting.label || '该起来走走了';
+            healthAlertType.value = 'sitting';
+        }
+        // 处理喝水提醒（如果久坐也在提醒，优先显示久坐，但喝水也设置 alerting）
+        if (p.water && p.water.alerting && !p.sitting?.alerting) {
+            isHealthAlerting.value = true;
+            healthAlertLabel.value = p.water.label || '该喝水了';
+            healthAlertType.value = 'water';
+        }
+        // 两个都未提醒时关闭
+        if ((!p.sitting || !p.sitting.alerting) && (!p.water || !p.water.alerting)) {
+            isHealthAlerting.value = false;
+            healthAlertLabel.value = '';
+        }
+    });
+
     // 监听实时活动控制台指令（非番茄钟活动）
 
     // 监听自动折叠设置
@@ -3876,5 +3935,32 @@ onUnmounted(() => {
 .island-close-btn svg {
     width: 20px;
     height: 20px;
+}
+
+/* ===== 健康提醒 ===== */
+.health-alert-box {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    height: 100%;
+}
+
+.health-alert-icon {
+    font-size: 18px;
+    line-height: 1;
+    animation: health-alert-pulse 1s ease-in-out infinite;
+}
+
+.health-alert-text {
+    font-size: 15px;
+    font-weight: 700;
+    color: #fbbf24;
+    white-space: nowrap;
+}
+
+@keyframes health-alert-pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
 }
 </style>

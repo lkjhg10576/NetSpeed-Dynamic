@@ -311,6 +311,64 @@
                                 </div>
                             </template>
 
+                            <template v-else-if="item.id === 'health'">
+                                <div class="health-config-panel">
+                                    <!-- 久坐提醒 -->
+                                    <div class="health-reminder-row">
+                                        <div class="health-reminder-header">
+                                            <span class="health-reminder-icon">🪑</span>
+                                            <div class="health-reminder-info">
+                                                <span class="health-reminder-title">久坐提醒</span>
+                                                <span class="health-reminder-desc">定时提醒起身活动</span>
+                                            </div>
+                                        </div>
+                                        <div class="health-reminder-controls">
+                                            <div class="health-time-input-group">
+                                                <input type="number" v-model.number="srMinutes" class="health-time-input" min="1" max="999" @change="onSrTimeChange" />
+                                                <span class="health-time-unit">分钟</span>
+                                            </div>
+                                            <label class="custom-switch mini">
+                                                <input type="checkbox" v-model="srEnabled" @change="toggleSrEnabled">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="health-status-row" v-if="srEnabled">
+                                        <span class="health-status-text" :class="{ alerting: srAlerting }">
+                                            {{ srAlerting ? '⏰ 提醒中' : '✓ 已开启' }}
+                                        </span>
+                                    </div>
+
+                                    <div class="health-divider"></div>
+
+                                    <!-- 喝水提醒 -->
+                                    <div class="health-reminder-row">
+                                        <div class="health-reminder-header">
+                                            <span class="health-reminder-icon">💧</span>
+                                            <div class="health-reminder-info">
+                                                <span class="health-reminder-title">喝水提醒</span>
+                                                <span class="health-reminder-desc">定时提醒补充水分</span>
+                                            </div>
+                                        </div>
+                                        <div class="health-reminder-controls">
+                                            <div class="health-time-input-group">
+                                                <input type="number" v-model.number="wrMinutes" class="health-time-input" min="1" max="999" @change="onWrTimeChange" />
+                                                <span class="health-time-unit">分钟</span>
+                                            </div>
+                                            <label class="custom-switch mini">
+                                                <input type="checkbox" v-model="wrEnabled" @change="toggleWrEnabled">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="health-status-row" v-if="wrEnabled">
+                                        <span class="health-status-text" :class="{ alerting: wrAlerting }">
+                                            {{ wrAlerting ? '⏰ 提醒中' : '✓ 已开启' }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </template>
+
                             <template v-else>
                                 <div class="pro-coming-soon">
                                     <div class="loader-line"></div>
@@ -341,6 +399,10 @@ import {
     NSD_HW_DEFAULT_METRIC,
     NSD_HW_ROTATION,
     NSD_HW_DUAL_RING,
+    NSD_SITTING_REMINDER_ENABLED,
+    NSD_SITTING_REMINDER_SECS,
+    NSD_WATER_REMINDER_ENABLED,
+    NSD_WATER_REMINDER_SECS,
 } from '../constants/storageKeys';
 
 // ===== 三步设置状态 =====
@@ -389,6 +451,57 @@ const hwMode = ref(localStorage.getItem(NSD_HW_MODE) || 'single');
 const hwDefaultMetric = ref(localStorage.getItem(NSD_HW_DEFAULT_METRIC) || 'cpu');
 const hwCpuPct = ref(0);
 const hwMemPct = ref(0);
+
+// ===== 健康提醒配置 =====
+const srEnabled = ref(localStorage.getItem(NSD_SITTING_REMINDER_ENABLED) === 'true');
+const srMinutes = ref(Number(localStorage.getItem(NSD_SITTING_REMINDER_SECS) || '60'));
+const srActive = ref(false);
+const srAlerting = ref(false);
+const wrEnabled = ref(localStorage.getItem(NSD_WATER_REMINDER_ENABLED) === 'true');
+const wrMinutes = ref(Number(localStorage.getItem(NSD_WATER_REMINDER_SECS) || '120'));
+const wrActive = ref(false);
+const wrAlerting = ref(false);
+
+function saveHealthConfig() {
+    localStorage.setItem(NSD_SITTING_REMINDER_ENABLED, String(srEnabled.value));
+    localStorage.setItem(NSD_SITTING_REMINDER_SECS, srMinutes.value.toString());
+    localStorage.setItem(NSD_WATER_REMINDER_ENABLED, String(wrEnabled.value));
+    localStorage.setItem(NSD_WATER_REMINDER_SECS, wrMinutes.value.toString());
+}
+
+async function toggleSrEnabled() {
+    saveHealthConfig();
+    if (srEnabled.value) {
+        try {
+            await invoke('start_sitting_reminder', { intervalSecs: srMinutes.value * 60 });
+            srActive.value = true;
+            srAlerting.value = false;
+        } catch (_e) {}
+    } else {
+        try {
+            await invoke('stop_sitting_reminder');
+            srActive.value = false;
+            srAlerting.value = false;
+        } catch (_e) {}
+    }
+}
+
+async function toggleWrEnabled() {
+    saveHealthConfig();
+    if (wrEnabled.value) {
+        try {
+            await invoke('start_water_reminder', { intervalSecs: wrMinutes.value * 60 });
+            wrActive.value = true;
+            wrAlerting.value = false;
+        } catch (_e) {}
+    } else {
+        try {
+            await invoke('stop_water_reminder');
+            wrActive.value = false;
+            wrAlerting.value = false;
+        } catch (_e) {}
+    }
+}
 
 function saveHwConfig() {
     localStorage.setItem(NSD_HW_ENABLED, String(hwEnabled.value));
@@ -516,6 +629,22 @@ async function handlePomoStop() {
     isPomoPaused.value = false;
 }
 
+function onSrTimeChange() {
+    if (srMinutes.value < 1) srMinutes.value = 1;
+    saveHealthConfig();
+    if (srEnabled.value) {
+        invoke('start_sitting_reminder', { intervalSecs: srMinutes.value * 60 }).catch(() => {});
+    }
+}
+
+function onWrTimeChange() {
+    if (wrMinutes.value < 1) wrMinutes.value = 1;
+    saveHealthConfig();
+    if (wrEnabled.value) {
+        invoke('start_water_reminder', { intervalSecs: wrMinutes.value * 60 }).catch(() => {});
+    }
+}
+
 const activities = ref([
     {
         id: 'pomodoro',
@@ -541,6 +670,15 @@ const activities = ref([
         title: '硬件监控',
         desc: '实时监测处理器与内存',
         accent: '#3b82f6',
+        enabled: false,
+        disable: false
+    },
+    {
+        id: 'health',
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>',
+        title: '健康提醒',
+        desc: '久坐与喝水提醒',
+        accent: '#10b981',
         enabled: false,
         disable: false
     },
@@ -702,6 +840,42 @@ onMounted(async () => {
         if (typeof p.cpu_pct === 'number') hwCpuPct.value = p.cpu_pct;
         if (typeof p.mem_pct === 'number') hwMemPct.value = p.mem_pct;
     });
+
+    // 监听健康提醒 tick 事件
+    await listen<any>('health-reminder-tick', (event) => {
+        const p = event.payload;
+        if (p.sitting) {
+            srActive.value = p.sitting.enabled;
+            srAlerting.value = p.sitting.alerting;
+        }
+        if (p.water) {
+            wrActive.value = p.water.enabled;
+            wrAlerting.value = p.water.alerting;
+        }
+    });
+
+    // 尝试恢复健康提醒运行状态
+    try {
+        const state: any = await invoke('get_health_reminder_state');
+        if (state.sitting.enabled) {
+            srActive.value = true;
+            srAlerting.value = state.sitting.alerting;
+        }
+        if (state.water.enabled) {
+            wrActive.value = true;
+            wrAlerting.value = state.water.alerting;
+        }
+    } catch (_e) {}
+
+    // 启动时自动开启已启用的健康提醒
+    if (srEnabled.value && !srActive.value) {
+        invoke('start_sitting_reminder', { intervalSecs: srMinutes.value * 60 }).catch(() => {});
+        srActive.value = true;
+    }
+    if (wrEnabled.value && !wrActive.value) {
+        invoke('start_water_reminder', { intervalSecs: wrMinutes.value * 60 }).catch(() => {});
+        wrActive.value = true;
+    }
 
     // 硬件监控后台始终推送 monitor-stats，前端不再控制 emit 开关
 
@@ -1803,6 +1977,106 @@ onUnmounted(() => {
     font-size: 10px;
     font-weight: 600;
     color: var(--item-desc-color);
+}
+
+/* ===== 健康提醒 ===== */
+.health-config-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 4px 0;
+}
+
+.health-reminder-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 4px;
+    border-radius: 8px;
+    background: var(--card-bg, rgba(255,255,255,0.06));
+}
+
+.health-reminder-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.health-reminder-icon {
+    font-size: 18px;
+    line-height: 1;
+}
+
+.health-reminder-info {
+    display: flex;
+    flex-direction: column;
+}
+
+.health-reminder-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--item-title-color, #fff);
+}
+
+.health-reminder-desc {
+    font-size: 10px;
+    color: var(--item-desc-color, rgba(255,255,255,0.5));
+}
+
+.health-reminder-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.health-time-input-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.health-time-input {
+    width: 48px;
+    padding: 2px 4px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.15));
+    border-radius: 4px;
+    background: var(--input-bg, rgba(255,255,255,0.08));
+    color: var(--text-color, #fff);
+    font-size: 12px;
+    text-align: center;
+    outline: none;
+}
+
+.health-time-input:focus {
+    border-color: var(--accent-color, #10b981);
+}
+
+.health-time-unit {
+    font-size: 11px;
+    color: var(--item-desc-color, rgba(255,255,255,0.5));
+}
+
+.health-divider {
+    height: 1px;
+    background: var(--control-border, rgba(255,255,255,0.08));
+    margin: 2px 0;
+}
+
+.health-status-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px 4px;
+}
+
+.health-status-text {
+    font-size: 11px;
+    color: var(--item-desc-color, rgba(255,255,255,0.6));
+}
+
+.health-status-text.alerting {
+    color: #fbbf24;
+    font-weight: 600;
 }
 
 </style>
