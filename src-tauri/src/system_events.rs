@@ -21,6 +21,8 @@ pub fn start_monitor(app: AppHandle) {
         let mut last_volume = get_system_volume().unwrap_or(-1.0);
         let mut last_power_state = 255;    // 255 = 未知状态
         let mut last_battery_percent = 255; // 255 = 未知电量
+        // 空闲优化：连续多次状态无变化时延长休眠，减少 COM API 调用频率
+        let mut stability_counter: u32 = 0;
 
         // 启动时先拉取一次真实状态打底
         if let Some((ac_status, battery_percent)) = get_power_status() {
@@ -29,13 +31,18 @@ pub fn start_monitor(app: AppHandle) {
         }
 
         loop {
-            std::thread::sleep(Duration::from_millis(800)); // 每 800ms 检查一次
+            // 空闲优化：状态越稳定，检查间隔越长（800ms ~ 2000ms）
+            let sleep_ms = if stability_counter >= 3 { 2000 } else { 800 };
+            std::thread::sleep(Duration::from_millis(sleep_ms));
 
-            // 1. 检查音量变化 (保持你原有逻辑不变)
+            let mut changed = false;
+
+            // 1. 检查音量变化
             if let Some(current_volume) = get_system_volume() {
                 if (current_volume - last_volume).abs() > 0.01 && last_volume != -1.0 {
                     let vol_percent = (current_volume * 100.0).round() as i32;
                     let _ = app.emit("system-event", format!("当前系统音量 {}%", vol_percent));
+                    changed = true;
                 }
                 last_volume = current_volume;
             }
@@ -55,6 +62,7 @@ pub fn start_monitor(app: AppHandle) {
                         // 拔出电源：发送普通系统文本（触发原本的普通黑白系统通知）
                         let _ = app.emit("system-event", "正在使用电池供电");
                     }
+                    changed = true;
                 }
 
                 // 【情况 B】正在使用电池（未插电），且电量正在下降
@@ -65,11 +73,22 @@ pub fn start_monitor(app: AppHandle) {
                             state: "discharging".to_string(),
                             percent: current_percent,
                         });
+                        changed = true;
                     }
                 }
 
+                if current_power != last_power_state || current_percent != last_battery_percent {
+                    changed = true;
+                }
                 last_power_state = current_power;
                 last_battery_percent = current_percent;
+            }
+
+            // 空闲优化：状态变化时重置计数器，无变化时递增
+            if changed {
+                stability_counter = 0;
+            } else {
+                stability_counter = stability_counter.saturating_add(1);
             }
         }
     });

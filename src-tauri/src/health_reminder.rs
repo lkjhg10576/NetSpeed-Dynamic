@@ -10,6 +10,7 @@ static SITTING_ENABLED: AtomicBool = AtomicBool::new(false);
 static SITTING_REMAINING_SECS: AtomicI32 = AtomicI32::new(0); // >0 倒计时, -1 提醒中
 static SITTING_INTERVAL_SECS: AtomicU32 = AtomicU32::new(3600); // 默认 1 小时
 static SITTING_ALERT_TICK: AtomicU32 = AtomicU32::new(0); // 提醒中辅助计数器
+static SITTING_CAN_SKIP: AtomicBool = AtomicBool::new(true); // 是否可以跳过
 
 // ──────────────────────────────────────────────
 // 喝水提醒状态
@@ -18,6 +19,7 @@ static WATER_ENABLED: AtomicBool = AtomicBool::new(false);
 static WATER_REMAINING_SECS: AtomicI32 = AtomicI32::new(0); // >0 倒计时, -1 提醒中
 static WATER_INTERVAL_SECS: AtomicU32 = AtomicU32::new(7200); // 默认 2 小时
 static WATER_ALERT_TICK: AtomicU32 = AtomicU32::new(0); // 提醒中辅助计数器
+static WATER_CAN_SKIP: AtomicBool = AtomicBool::new(true); // 是否可以跳过
 
 /// 在 Windows 上播放系统"感叹号"音效
 fn play_exclamation_sound() {
@@ -109,12 +111,14 @@ pub fn start_health_reminder_thread(app_handle: AppHandle) {
                     "remaining_secs": if sitting_rem > 0 { sitting_rem } else { 0 },
                     "alerting": sitting_rem == -1,
                     "label": "该起来走走了",
+                    "can_skip": SITTING_CAN_SKIP.load(Ordering::Relaxed),
                 },
                 "water": {
                     "enabled": WATER_ENABLED.load(Ordering::Relaxed),
                     "remaining_secs": if water_rem > 0 { water_rem } else { 0 },
                     "alerting": water_rem == -1,
                     "label": "该喝水了",
+                    "can_skip": WATER_CAN_SKIP.load(Ordering::Relaxed),
                 },
             }));
         }
@@ -131,6 +135,7 @@ pub fn start_sitting_reminder(interval_secs: u32) {
     SITTING_REMAINING_SECS.store(interval_secs as i32, Ordering::Relaxed);
     SITTING_ALERT_TICK.store(0, Ordering::Relaxed);
     SITTING_ENABLED.store(true, Ordering::Relaxed);
+    SITTING_CAN_SKIP.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -138,6 +143,7 @@ pub fn stop_sitting_reminder() {
     SITTING_ENABLED.store(false, Ordering::Relaxed);
     SITTING_REMAINING_SECS.store(0, Ordering::Relaxed);
     SITTING_ALERT_TICK.store(0, Ordering::Relaxed);
+    SITTING_CAN_SKIP.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -145,6 +151,17 @@ pub fn dismiss_sitting_alert() {
     let interval = SITTING_INTERVAL_SECS.load(Ordering::Relaxed);
     SITTING_REMAINING_SECS.store(interval as i32, Ordering::Relaxed);
     SITTING_ALERT_TICK.store(0, Ordering::Relaxed);
+    SITTING_CAN_SKIP.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn skip_sitting_reminder() {
+    let remaining = SITTING_REMAINING_SECS.load(Ordering::Relaxed);
+    if remaining > 0 && SITTING_CAN_SKIP.load(Ordering::Relaxed) {
+        let interval = SITTING_INTERVAL_SECS.load(Ordering::Relaxed);
+        SITTING_REMAINING_SECS.store(remaining + interval as i32, Ordering::Relaxed);
+        SITTING_CAN_SKIP.store(false, Ordering::Relaxed);
+    }
 }
 
 #[tauri::command]
@@ -153,6 +170,7 @@ pub fn start_water_reminder(interval_secs: u32) {
     WATER_REMAINING_SECS.store(interval_secs as i32, Ordering::Relaxed);
     WATER_ALERT_TICK.store(0, Ordering::Relaxed);
     WATER_ENABLED.store(true, Ordering::Relaxed);
+    WATER_CAN_SKIP.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -160,6 +178,7 @@ pub fn stop_water_reminder() {
     WATER_ENABLED.store(false, Ordering::Relaxed);
     WATER_REMAINING_SECS.store(0, Ordering::Relaxed);
     WATER_ALERT_TICK.store(0, Ordering::Relaxed);
+    WATER_CAN_SKIP.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -167,6 +186,17 @@ pub fn dismiss_water_alert() {
     let interval = WATER_INTERVAL_SECS.load(Ordering::Relaxed);
     WATER_REMAINING_SECS.store(interval as i32, Ordering::Relaxed);
     WATER_ALERT_TICK.store(0, Ordering::Relaxed);
+    WATER_CAN_SKIP.store(true, Ordering::Relaxed);
+}
+
+#[tauri::command]
+pub fn skip_water_reminder() {
+    let remaining = WATER_REMAINING_SECS.load(Ordering::Relaxed);
+    if remaining > 0 && WATER_CAN_SKIP.load(Ordering::Relaxed) {
+        let interval = WATER_INTERVAL_SECS.load(Ordering::Relaxed);
+        WATER_REMAINING_SECS.store(remaining + interval as i32, Ordering::Relaxed);
+        WATER_CAN_SKIP.store(false, Ordering::Relaxed);
+    }
 }
 
 #[tauri::command]
@@ -180,12 +210,14 @@ pub fn get_health_reminder_state() -> serde_json::Value {
             "remaining_secs": if sitting_rem > 0 { sitting_rem } else { 0 },
             "alerting": sitting_rem == -1,
             "interval_secs": SITTING_INTERVAL_SECS.load(Ordering::Relaxed),
+            "can_skip": SITTING_CAN_SKIP.load(Ordering::Relaxed),
         },
         "water": {
             "enabled": WATER_ENABLED.load(Ordering::Relaxed),
             "remaining_secs": if water_rem > 0 { water_rem } else { 0 },
             "alerting": water_rem == -1,
             "interval_secs": WATER_INTERVAL_SECS.load(Ordering::Relaxed),
+            "can_skip": WATER_CAN_SKIP.load(Ordering::Relaxed),
         },
     })
 }

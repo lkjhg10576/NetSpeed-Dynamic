@@ -55,7 +55,7 @@
                                 <button class="pomo-btn" @click="handlePomoStop">停止</button>
                             </template>
                         </div>
-                        <label v-else-if="item.id !== 'countdown' && item.id !== 'hardware'" class="custom-switch" @click.stop>
+                        <label v-else-if="item.id !== 'countdown' && item.id !== 'hardware' && item.id !== 'health'" class="custom-switch" @click.stop>
                             <input type="checkbox" v-model="item.enabled" :disabled="item.disable">
                             <span class="slider"></span>
                         </label>
@@ -337,6 +337,12 @@
                                         <span class="health-status-text" :class="{ alerting: srAlerting }">
                                             {{ srAlerting ? '⏰ 提醒中' : '✓ 已开启' }}
                                         </span>
+                                        <template v-if="!srAlerting && srRemainingSeconds > 0">
+                                            <span class="health-countdown-text">距离下次提醒 {{ srFormattedRemaining }}</span>
+                                            <button class="health-skip-btn" :class="{ 'is-disabled': !srCanSkip }" :disabled="!srCanSkip" @click.stop="skipSittingReminder">
+                                                跳过提醒
+                                            </button>
+                                        </template>
                                     </div>
 
                                     <div class="health-divider"></div>
@@ -365,6 +371,12 @@
                                         <span class="health-status-text" :class="{ alerting: wrAlerting }">
                                             {{ wrAlerting ? '⏰ 提醒中' : '✓ 已开启' }}
                                         </span>
+                                        <template v-if="!wrAlerting && wrRemainingSeconds > 0">
+                                            <span class="health-countdown-text">距离下次提醒 {{ wrFormattedRemaining }}</span>
+                                            <button class="health-skip-btn" :class="{ 'is-disabled': !wrCanSkip }" :disabled="!wrCanSkip" @click.stop="skipWaterReminder">
+                                                跳过提醒
+                                            </button>
+                                        </template>
                                     </div>
                                 </div>
                             </template>
@@ -457,10 +469,37 @@ const srEnabled = ref(localStorage.getItem(NSD_SITTING_REMINDER_ENABLED) === 'tr
 const srMinutes = ref(Number(localStorage.getItem(NSD_SITTING_REMINDER_SECS) || '60'));
 const srActive = ref(false);
 const srAlerting = ref(false);
+const srRemainingSeconds = ref(0);
+const srCanSkip = ref(true);
 const wrEnabled = ref(localStorage.getItem(NSD_WATER_REMINDER_ENABLED) === 'true');
 const wrMinutes = ref(Number(localStorage.getItem(NSD_WATER_REMINDER_SECS) || '120'));
 const wrActive = ref(false);
 const wrAlerting = ref(false);
+const wrRemainingSeconds = ref(0);
+const wrCanSkip = ref(true);
+
+const srFormattedRemaining = computed(() => formatRemaining(srRemainingSeconds.value));
+const wrFormattedRemaining = computed(() => formatRemaining(wrRemainingSeconds.value));
+
+function formatRemaining(secs: number): string {
+    if (secs <= 0) return '';
+    if (secs >= 60) {
+        const m = Math.floor(secs / 60);
+        const s = secs % 60;
+        return `${m}分${s}秒`;
+    }
+    return `${secs}秒`;
+}
+
+async function skipSittingReminder() {
+    await invoke('skip_sitting_reminder').catch(() => {});
+    srCanSkip.value = false;
+}
+
+async function skipWaterReminder() {
+    await invoke('skip_water_reminder').catch(() => {});
+    wrCanSkip.value = false;
+}
 
 function saveHealthConfig() {
     localStorage.setItem(NSD_SITTING_REMINDER_ENABLED, String(srEnabled.value));
@@ -847,10 +886,14 @@ onMounted(async () => {
         if (p.sitting) {
             srActive.value = p.sitting.enabled;
             srAlerting.value = p.sitting.alerting;
+            srRemainingSeconds.value = p.sitting.remaining_secs;
+            srCanSkip.value = p.sitting.can_skip;
         }
         if (p.water) {
             wrActive.value = p.water.enabled;
             wrAlerting.value = p.water.alerting;
+            wrRemainingSeconds.value = p.water.remaining_secs;
+            wrCanSkip.value = p.water.can_skip;
         }
     });
 
@@ -860,10 +903,14 @@ onMounted(async () => {
         if (state.sitting.enabled) {
             srActive.value = true;
             srAlerting.value = state.sitting.alerting;
+            srRemainingSeconds.value = state.sitting.remaining_secs;
+            srCanSkip.value = state.sitting.can_skip;
         }
         if (state.water.enabled) {
             wrActive.value = true;
             wrAlerting.value = state.water.alerting;
+            wrRemainingSeconds.value = state.water.remaining_secs;
+            wrCanSkip.value = state.water.can_skip;
         }
     } catch (_e) {}
 
@@ -2077,6 +2124,37 @@ onUnmounted(() => {
 .health-status-text.alerting {
     color: #fbbf24;
     font-weight: 600;
+}
+
+.health-countdown-text {
+    font-size: 10px;
+    color: var(--item-desc-color, rgba(255,255,255,0.5));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.health-skip-btn {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.15));
+    background: transparent;
+    color: var(--item-title-color, #fff);
+    transition: all 0.2s ease;
+    outline: none;
+    line-height: 1.6;
+}
+
+.health-skip-btn:hover:not(.is-disabled) {
+    background: var(--control-border, rgba(255,255,255,0.15));
+    border-color: var(--accent-color, #10b981);
+    color: var(--accent-color, #10b981);
+}
+
+.health-skip-btn.is-disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
 }
 
 </style>

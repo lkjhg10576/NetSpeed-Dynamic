@@ -80,7 +80,11 @@ pub fn start_monitor() {
         let stream = match sample_format {
             cpal::SampleFormat::F32 => device.build_input_stream(
                 &config,
-                move |data: &[f32], _: &_| process_data(data, channels),
+                move |data: &[f32], _: &_| {
+                    // 频谱未激活时直接早退，避免无谓的 process_data 函数调用和 thread_local buffer 操作
+                    if !SPECTRUM_ACTIVE.load(Ordering::Relaxed) { return; }
+                    process_data(data, channels)
+                },
                 err_fn,
                 None,
             ),

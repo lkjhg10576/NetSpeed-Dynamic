@@ -329,9 +329,9 @@ fn start_hardware_monitor(app_handle: tauri::AppHandle) {
 
             // 刷新网络统计并计算差值
             networks.refresh();
-            // 每小时重建一次 Networks 对象，防止长期运行后虚拟网卡增删导致内部 hash 膨胀
+            // 每15分钟重建一次 Networks 对象，防止长期运行后虚拟网卡增删导致内部 hash 膨胀
             tick_count += 1;
-            if tick_count % 3600 == 0 {
+            if tick_count % 900 == 0 {
                 networks = Networks::new_with_refreshed_list();
                 // 重置累计缓存避免重建后首次速度计算出现异常负值
                 HW_LAST_RX.store(0, Ordering::Relaxed);
@@ -530,9 +530,11 @@ pub fn run() {
             health_reminder::start_sitting_reminder,
             health_reminder::stop_sitting_reminder,
             health_reminder::dismiss_sitting_alert,
+            health_reminder::skip_sitting_reminder,
             health_reminder::start_water_reminder,
             health_reminder::stop_water_reminder,
             health_reminder::dismiss_water_alert,
+            health_reminder::skip_water_reminder,
             health_reminder::get_health_reminder_state,
         ])
         .setup(|app| {
@@ -558,8 +560,6 @@ pub fn run() {
                 // P1：前台窗口句柄缓存 — 句柄未变时跳过完整的 Win32 API 检测，空闲开销趋近于零
                 let mut last_fg_hwnd = std::ptr::null_mut();
                 loop {
-                    std::thread::sleep(std::time::Duration::from_millis(600));
-                    
                     #[cfg(target_os = "windows")]
                     {
                         unsafe {
@@ -568,6 +568,8 @@ pub fn run() {
                             
                             // 快速路径：前台窗口句柄与上次相同，说明窗口未切换，跳过完整检测
                             if fg_hwnd == last_fg_hwnd {
+                                // 窗口未切换时延长休眠间隔（2000ms），减少不必要的 CPU 唤醒
+                                std::thread::sleep(std::time::Duration::from_millis(2000));
                                 continue;
                             }
                             last_fg_hwnd = fg_hwnd;
@@ -629,6 +631,8 @@ pub fn run() {
                             }
                         }
                     }
+                    // 正常检测路径：休眠 600ms 后继续轮询
+                    std::thread::sleep(std::time::Duration::from_millis(600));
                 }
             });
 
