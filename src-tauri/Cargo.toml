@@ -54,5 +54,9 @@ windows = { version = "0.58.0", features = [
 ] }
 cpal = "0.15"
 rustfft = "6.2"
+
 # Fix Dependabot: glib unsoundness GHSA - force 0.20+ (patched)
+# 仅在非 Windows 平台启用：Linux/macOS 上 tao 通过 gtk 依赖 glib，需要钉到 0.20+ 修复安全告警；
+# Windows 走 Win32 API，不需要原生 glib，且构建机无 pkg-config，必须排除，否则 tauri build 失败。
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 glib = "0.20"
