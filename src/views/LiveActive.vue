@@ -821,6 +821,7 @@ function syncActivityConfig() {
 
 // 优先级输入框失焦：持久化 + 推送
 function onPriorityBlur(_item: { id: string }) {
+    focusedPriority.value = null;
     persistPriorityMap();
     syncActivityConfig();
 }
@@ -1369,15 +1370,15 @@ onUnmounted(() => {
     bottom: 100%;
     right: 0;
     margin-bottom: 4px;
-    padding: 3px 8px;
-    border-radius: 4px;
-    background: var(--h1-color, #1a1a1a);
-    color: #fff;
-    font-size: 10px;
+    padding: 0;
+    background: transparent;
+    color: var(--h1-color);
+    font-size: 11px;
     font-weight: 600;
     white-space: nowrap;
     pointer-events: none;
     z-index: 10;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
 }
 
 .card-body {
