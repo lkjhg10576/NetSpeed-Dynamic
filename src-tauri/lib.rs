@@ -488,6 +488,8 @@ pub fn run() {
             countdown::resume_countdown,
             countdown::stop_countdown,
             countdown::get_countdown_state,
+            system_events::set_system_event_filter,
+            system_events::SystemEventFilter,
         ])
         .setup(|app| {
             // B8: 注册 AppHandle 到 audio_spectrum 模块，支持 emit 频谱事件
