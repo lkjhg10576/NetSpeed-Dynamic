@@ -395,6 +395,8 @@ import {
     NSD_HW_DEFAULT_METRIC,
     NSD_ACTIVITY_PRIORITY,
     NSD_SPECTRUM_COLOR_MODE, NSD_SPECTRUM_CUSTOM_COLOR,
+    NSD_SYSMSG_ENABLED, NSD_SYSMSG_VOLUME_ENABLED,
+    NSD_SYSMSG_POWER_ENABLED, NSD_SYSMSG_BATTERY_ENABLED,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
@@ -1292,7 +1294,7 @@ const tryLoadImage = (src: string, crossOrigin: boolean) => new Promise<HTMLImag
 
 const loadImageForColor = async (url: string): Promise<HTMLImageElement> => {
     // dataURL 无跨域问题
-    if (url.starts_with('data:')) {
+    if (url.startsWith('data:')) {
         return tryLoadImage(url, false);
     }
     // 远程图仅尝试 CORS；失败不走后端取图，直接让上层清空 albumColors → 回退淡蓝
