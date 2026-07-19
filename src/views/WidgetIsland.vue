@@ -318,8 +318,7 @@
 
                     <div v-else-if="showSpectrumIndicator" class="audio-spectrum"
                         :class="{ 'is-playing': isPlaying, 'expanded': isMusicExpanded }" key="spectrum">
-                        <span class="bar" v-for="(val, index) in spectrumData" :key="index"
-                            :style="{ transform: `scaleY(${val})` }"></span>
+                        <canvas ref="spectrumCanvasRef" class="spectrum-canvas"></canvas>
                     </div>
 
                     <div v-else :class="['status-dot', networkStatus]" key="dot"></div>
@@ -395,6 +394,7 @@ import {
     NSD_HW_MODE,
     NSD_HW_DEFAULT_METRIC,
     NSD_ACTIVITY_PRIORITY,
+    NSD_SPECTRUM_COLOR_MODE, NSD_SPECTRUM_CUSTOM_COLOR,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
@@ -881,6 +881,12 @@ const networkStatus = ref<'good' | 'warning' | 'error'>('good');
 const hwEnabled = ref(localStorage.getItem(NSD_HW_ENABLED) === 'true');
 const hwMode = ref(localStorage.getItem(NSD_HW_MODE) || 'single');
 const hwDefaultMetric = ref(localStorage.getItem(NSD_HW_DEFAULT_METRIC) || 'cpu');
+
+// 系统动态感知（由 LiveActive 的开关驱动；事件来自后端 system-event / battery-event）
+const isSysmsgEnabled = ref(localStorage.getItem(NSD_SYSMSG_ENABLED) === 'true');
+const sysmsgVolumeEnabled = ref(localStorage.getItem(NSD_SYSMSG_VOLUME_ENABLED) !== 'false');
+const sysmsgPowerEnabled = ref(localStorage.getItem(NSD_SYSMSG_POWER_ENABLED) !== 'false');
+const sysmsgBatteryEnabled = ref(localStorage.getItem(NSD_SYSMSG_BATTERY_ENABLED) !== 'false');
 const hwCpuPct = ref(0);
 const hwMemPct = ref(0);
 const isHardwareExpanded = ref(false);
@@ -965,8 +971,32 @@ const isPlaying = ref(false);
 // 流光边框默认状态完全镜像音乐控制器（只要音乐控制器开着它就开，关了就一起关�?
 const isGlowBorderEnabled = ref(localStorage.getItem(NSD_GLOW_BORDER) === 'true');
 
-// 律动频谱
+// 律动频谱（Canvas 2D 渲染）
 const spectrumData = ref([0.35, 0.35, 0.35, 0.35, 0.35]);
+const spectrumCanvasRef = ref<HTMLCanvasElement | null>(null);
+const spectrumColorMode = ref(localStorage.getItem(NSD_SPECTRUM_COLOR_MODE) || 'album'); // 'album' | 'theme' | 'custom'
+const spectrumCustomColor = ref(localStorage.getItem(NSD_SPECTRUM_CUSTOM_COLOR) || '#b6e0ee');
+const albumColors = ref<string[]>([]);
+
+// Canvas 频谱渲染状态（非响应式，避免每帧触发 Vue 更新）
+const SPECTRUM_BAR_COUNT = 5;
+const SPECTRUM_CSS_W = 34;
+const SPECTRUM_CSS_H = 12;
+const SPECTRUM_BAR_W = 2;
+const SPECTRUM_BAR_GAP = 2;
+const SPECTRUM_MIN_H = 2;
+const SPECTRUM_BASELINE = 0.35;
+const SPECTRUM_CEILING = 0.95;
+const SPECTRUM_SMOOTHING = 0.22;
+/** 专辑取色失败/无封面时的默认淡蓝（与旧 .bar 颜色一致） */
+const SPECTRUM_FALLBACK_COLOR = '#b6e0ee';
+let latestSpectrum = [0.35, 0.35, 0.35, 0.35, 0.35];
+let currentHeights = [0.35, 0.35, 0.35, 0.35, 0.35];
+let spectrumRafId = 0;
+let spectrumPeakRef = 0.01;
+let spectrumFillCache: string | CanvasGradient | null = null;
+let spectrumFillCacheKey = '';
+let albumColorToken = 0;
 
 // 封面url
 const coverUrl = ref('');
@@ -1034,23 +1064,314 @@ const showSpectrumIndicator = computed(() => {
 // 频谱开关状态追踪，避免重复调用后端
 let isSpectrumActive = false;
 
+/** 圆角竖条绘制（roundRect fallback） */
+const drawRoundedBar = (
+    ctx: CanvasRenderingContext2D,
+    x: number, y: number, w: number, h: number, r: number
+) => {
+    if (h <= 0 || w <= 0) return;
+    const radius = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    if (typeof (ctx as any).roundRect === 'function') {
+        (ctx as any).roundRect(x, y, w, h, radius);
+    } else {
+        ctx.moveTo(x + radius, y);
+        ctx.arcTo(x + w, y, x + w, y + h, radius);
+        ctx.arcTo(x + w, y + h, x, y + h, radius);
+        ctx.arcTo(x, y + h, x, y, radius);
+        ctx.arcTo(x, y, x + w, y, radius);
+        ctx.closePath();
+    }
+    ctx.fill();
+};
+
+/** 计算当前模式的填充色/渐变，带缓存 */
+const resolveSpectrumFill = (ctx: CanvasRenderingContext2D, height: number) => {
+    const mode = spectrumColorMode.value;
+    const theme = islandTheme.value;
+    const custom = spectrumCustomColor.value;
+    const colors = albumColors.value;
+    const key = `${mode}|${theme}|${custom}|${colors.join(',')}|${height}`;
+    if (spectrumFillCache && spectrumFillCacheKey === key) {
+        return spectrumFillCache;
+    }
+
+    let fill: string | CanvasGradient;
+    if (mode === 'custom') {
+        fill = custom || SPECTRUM_FALLBACK_COLOR;
+    } else if (mode === 'theme') {
+        fill = theme === 'white' ? '#000000' : '#ffffff';
+    } else {
+        // album 模式：有取色则用渐变/纯色，失败或无封面一律回退默认淡蓝
+        if (colors.length >= 2) {
+            const g = ctx.createLinearGradient(0, 0, 0, height);
+            g.addColorStop(0, colors[0]);
+            g.addColorStop(1, colors[colors.length - 1]);
+            fill = g;
+        } else if (colors.length === 1) {
+            fill = colors[0];
+        } else {
+            fill = SPECTRUM_FALLBACK_COLOR;
+        }
+    }
+
+    spectrumFillCache = fill;
+    spectrumFillCacheKey = key;
+    return fill;
+};
+
+/** 确保 canvas 物理像素匹配 DPR */
+const ensureSpectrumCanvasSize = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    const dpr = window.devicePixelRatio || 1;
+    const targetW = Math.round(SPECTRUM_CSS_W * dpr);
+    const targetH = Math.round(SPECTRUM_CSS_H * dpr);
+    if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+        canvas.style.width = `${SPECTRUM_CSS_W}px`;
+        canvas.style.height = `${SPECTRUM_CSS_H}px`;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        // 尺寸变化会使渐变失效
+        spectrumFillCache = null;
+        spectrumFillCacheKey = '';
+    }
+};
+
+/** 单帧绘制：插值高度 + 自适应增益 + 圆角条 */
+const renderSpectrumFrame = () => {
+    const canvas = spectrumCanvasRef.value;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ensureSpectrumCanvasSize(canvas, ctx);
+
+    // 前端二次平滑 + 前端轻量 AGC（跟踪近 1s 峰值）
+    let framePeak = 0.01;
+    for (let i = 0; i < SPECTRUM_BAR_COUNT; i++) {
+        const target = latestSpectrum[i] ?? SPECTRUM_BASELINE;
+        currentHeights[i] += (target - currentHeights[i]) * SPECTRUM_SMOOTHING;
+
+        const n = Math.min(1, Math.max(0,
+            (currentHeights[i] - SPECTRUM_BASELINE) / (SPECTRUM_CEILING - SPECTRUM_BASELINE)
+        ));
+        if (n > framePeak) framePeak = n;
+    }
+    // 峰值快上升慢回落
+    if (framePeak > spectrumPeakRef) {
+        spectrumPeakRef = framePeak;
+    } else {
+        spectrumPeakRef = Math.max(0.01, spectrumPeakRef * 0.995);
+    }
+
+    ctx.clearRect(0, 0, SPECTRUM_CSS_W, SPECTRUM_CSS_H);
+    ctx.fillStyle = resolveSpectrumFill(ctx, SPECTRUM_CSS_H) as any;
+
+    const totalBarsW = SPECTRUM_BAR_COUNT * SPECTRUM_BAR_W + (SPECTRUM_BAR_COUNT - 1) * SPECTRUM_BAR_GAP;
+    const startX = Math.max(0, (SPECTRUM_CSS_W - totalBarsW) / 2);
+
+    for (let i = 0; i < SPECTRUM_BAR_COUNT; i++) {
+        const n = Math.min(1, Math.max(0,
+            (currentHeights[i] - SPECTRUM_BASELINE) / (SPECTRUM_CEILING - SPECTRUM_BASELINE)
+        ));
+        // 自适应增益：任何音量段视觉幅度趋于一致
+        const display = Math.min(1, n / spectrumPeakRef);
+        const barH = SPECTRUM_MIN_H + display * (SPECTRUM_CSS_H - SPECTRUM_MIN_H);
+        const x = startX + i * (SPECTRUM_BAR_W + SPECTRUM_BAR_GAP);
+        const y = (SPECTRUM_CSS_H - barH) / 2; // 居中（与旧 transform-origin:center 一致）
+        drawRoundedBar(ctx, x, y, SPECTRUM_BAR_W, barH, 1.5);
+    }
+};
+
+const stopSpectrumRaf = () => {
+    if (spectrumRafId) {
+        cancelAnimationFrame(spectrumRafId);
+        spectrumRafId = 0;
+    }
+};
+
+const startSpectrumRaf = () => {
+    if (spectrumRafId) return;
+    const loop = () => {
+        renderSpectrumFrame();
+        spectrumRafId = requestAnimationFrame(loop);
+    };
+    spectrumRafId = requestAnimationFrame(loop);
+};
+
+/** RGB → 提亮后的 hex（保证在黑岛上可见） */
+const rgbToHexBoosted = (r: number, g: number, b: number): string => {
+    // 转 HSL 提亮 L
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0;
+    const l = (max + min) / 2;
+    if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+            case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+            case g: h = ((b - r) / d + 2) / 6; break;
+            default: h = ((r - g) / d + 4) / 6; break;
+        }
+    }
+    const targetL = Math.max(l, 0.58);
+    // HSL → RGB
+    const hue2rgb = (p: number, q: number, t: number) => {
+        if (t < 0) t += 1;
+        if (t > 1) t -= 1;
+        if (t < 1 / 6) return p + (q - p) * 6 * t;
+        if (t < 1 / 2) return q;
+        if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+        return p;
+    };
+    let nr: number, ng: number, nb: number;
+    if (s === 0) {
+        nr = ng = nb = targetL;
+    } else {
+        const q = targetL < 0.5 ? targetL * (1 + s) : targetL + s - targetL * s;
+        const p = 2 * targetL - q;
+        nr = hue2rgb(p, q, h + 1 / 3);
+        ng = hue2rgb(p, q, h);
+        nb = hue2rgb(p, q, h - 1 / 3);
+    }
+    const toHex = (v: number) => Math.round(Math.min(255, Math.max(0, v * 255))).toString(16).padStart(2, '0');
+    return `#${toHex(nr)}${toHex(ng)}${toHex(nb)}`;
+};
+
+/** 从 ImageBitmap/Image 像素提取 2 个主色 */
+const sampleColorsFromImage = (img: CanvasImageSource, w: number, h: number): string[] => {
+    const off = document.createElement('canvas');
+    off.width = 8;
+    off.height = 8;
+    const octx = off.getContext('2d', { willReadFrequently: true });
+    if (!octx) return [];
+    octx.drawImage(img, 0, 0, w, h, 0, 0, 8, 8);
+    let data: ImageData;
+    try {
+        data = octx.getImageData(0, 0, 8, 8);
+    } catch {
+        return []; // SecurityError：canvas 被污染
+    }
+
+    const dark: number[][] = [];
+    const bright: number[][] = [];
+    for (let i = 0; i < data.data.length; i += 4) {
+        const r = data.data[i], g = data.data[i + 1], b = data.data[i + 2], a = data.data[i + 3];
+        if (a < 128) continue;
+        const sum = r + g + b;
+        if (sum < 60 || sum > 720) continue; // 过滤过暗/过亮
+        const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+        (lum < 128 ? dark : bright).push([r, g, b]);
+    }
+
+    const avg = (arr: number[][]) => {
+        if (!arr.length) return null;
+        let r = 0, g = 0, b = 0;
+        for (const p of arr) { r += p[0]; g += p[1]; b += p[2]; }
+        const n = arr.length;
+        return rgbToHexBoosted(r / n, g / n, b / n);
+    };
+
+    const c1 = avg(bright) || avg(dark);
+    const c2 = avg(dark) || avg(bright);
+    const result: string[] = [];
+    if (c1) result.push(c1);
+    if (c2 && c2 !== c1) result.push(c2);
+    return result;
+};
+
+/** 加载图片（仅前端路径：dataURL 直载 / 远程 CORS；失败即视为取色失败） */
+const tryLoadImage = (src: string, crossOrigin: boolean) => new Promise<HTMLImageElement>((res, rej) => {
+    const img = new Image();
+    if (crossOrigin) img.crossOrigin = 'anonymous';
+    img.onload = () => res(img);
+    img.onerror = () => rej(new Error('image load failed'));
+    img.src = src;
+});
+
+const loadImageForColor = async (url: string): Promise<HTMLImageElement> => {
+    // dataURL 无跨域问题
+    if (url.starts_with('data:')) {
+        return tryLoadImage(url, false);
+    }
+    // 远程图仅尝试 CORS；失败不走后端取图，直接让上层清空 albumColors → 回退淡蓝
+    return tryLoadImage(url, true);
+};
+
+/** 从封面 URL 提取专辑主色；任何失败都清空 albumColors，由 album 模式回退到默认淡蓝 */
+const extractAlbumColors = async (imgUrl: string) => {
+    const token = ++albumColorToken;
+    if (!imgUrl) {
+        albumColors.value = [];
+        spectrumFillCache = null;
+        return;
+    }
+    try {
+        const img = await loadImageForColor(imgUrl);
+        if (token !== albumColorToken) return; // 过期请求
+        const colors = sampleColorsFromImage(img, img.naturalWidth || img.width, img.naturalHeight || img.height);
+        if (token !== albumColorToken) return;
+        // 无有效像素时也视为失败 → 清空，触发默认淡蓝
+        albumColors.value = colors;
+        spectrumFillCache = null;
+    } catch (e) {
+        if (token !== albumColorToken) return;
+        console.warn('专辑取色失败，回退默认淡蓝', e);
+        albumColors.value = [];
+        spectrumFillCache = null;
+    }
+};
+
 // 按需启停音频频谱捕获：音乐控制器模式开启且灵动岛可见时即激活后端 FFT。
 // 改为以「音乐模式 + 可见」为启停条件（而非 isPlaying）：
 //   1. 暂停时捕获仍在运行，但因无音频会自动回落到静默基准线（0.35），频谱条平滑归位，
 //      彻底修复旧轮询逻辑移除后「暂停/切歌后频谱条卡死在最后高度」的回归；
 //   2. 配合 immediate，窗口重建（省内存模式）后立刻恢复，无需等待下一次音乐轮询。
-watch([showSpectrumIndicator, isIslandVisible], () => {
+//   3. rAF 渲染循环仅在频谱可见时运行，不可见即停，零占用。
+watch([showSpectrumIndicator, isIslandVisible], async () => {
     const shouldActivate = showSpectrumIndicator.value && isIslandVisible.value;
     if (shouldActivate && !isSpectrumActive) {
         isSpectrumActive = true;
         invoke('set_spectrum_active', { active: true }).catch(() => {});
+        await nextTick();
+        startSpectrumRaf();
     } else if (!shouldActivate && isSpectrumActive) {
         isSpectrumActive = false;
         invoke('set_spectrum_active', { active: false }).catch(() => {});
+        stopSpectrumRaf();
         // 关闭捕获时复位到静默基准线，避免残留上一首歌曲的波形
-        spectrumData.value = [0.35, 0.35, 0.35, 0.35, 0.35];
+        const baseline = [0.35, 0.35, 0.35, 0.35, 0.35];
+        spectrumData.value = baseline;
+        latestSpectrum = [...baseline];
+        currentHeights = [...baseline];
+        spectrumPeakRef = 0.01;
+    } else if (shouldActivate) {
+        // 已激活但 canvas 可能因 transition 重建，确保 rAF 在跑
+        await nextTick();
+        startSpectrumRaf();
     }
 }, { immediate: true });
+
+// 颜色模式 / 自定义色 / 主题 / 专辑色 变化时写存储并失效填充缓存
+watch(spectrumColorMode, (v) => {
+    localStorage.setItem(NSD_SPECTRUM_COLOR_MODE, v);
+    spectrumFillCache = null;
+});
+watch(spectrumCustomColor, (v) => {
+    localStorage.setItem(NSD_SPECTRUM_CUSTOM_COLOR, v);
+    spectrumFillCache = null;
+});
+watch(islandTheme, () => {
+    spectrumFillCache = null;
+});
+watch(albumColors, () => {
+    spectrumFillCache = null;
+});
+// 封面变化时重新取色
+watch(coverUrl, (url) => {
+    extractAlbumColors(url || '');
+});
 
 const startRotation = () => {
     if (rotationTimer) clearInterval(rotationTimer);
@@ -2372,11 +2693,19 @@ onMounted(async () => {
 
     // 监听系统底层事件（音量、电源）
     await listen<string>('system-event', (event) => {
-        showToast(event.payload, 'sys');
+        const text = (event as any).payload as string;
+        if (!isSysmsgEnabled.value) return;
+        const lowered = text.toLowerCase();
+        const allowVolume = sysmsgVolumeEnabled.value;
+        const allowPower = sysmsgPowerEnabled.value;
+        if ((lowered.includes('音量') || lowered.includes('volume')) && !allowVolume) return;
+        if ((lowered.includes('电源') || lowered.includes('供电')) && !allowPower) return;
+        showToast(text, 'sys');
     });
 
     await listen<{ state: 'charging' | 'discharging', percent: number }>('battery-event', (event) => {
-        const { state, percent } = event.payload;
+        const { state, percent } = (event as any).payload as { state: 'charging' | 'discharging'; percent: number };
+        if (!isSysmsgEnabled.value || !sysmsgBatteryEnabled.value) return;
 
         if (state === 'charging') {
             showToast(`已接入电源，当前电量 ${percent}%`, 'battery-charge');
@@ -2394,6 +2723,16 @@ onMounted(async () => {
     // 监听来自控制台的主题同步指令
     await listen<{ theme: string }>('control-island-theme', (event) => {
         islandTheme.value = event.payload.theme;
+    });
+
+    // 监听频谱颜色模式同步
+    await listen<{ mode: string; color: string }>('control-spectrum-color', (event) => {
+        if (event.payload?.mode) {
+            spectrumColorMode.value = event.payload.mode;
+        }
+        if (event.payload?.color) {
+            spectrumCustomColor.value = event.payload.color;
+        }
     });
 
     // 监听置于任务栏开�?
@@ -2833,9 +3172,15 @@ onMounted(async () => {
         currentHeight.value = h;
     });
 
-    // B8: 监听后端推来的频谱数据（替代 50ms setInterval 轮询，显著减�?IPC 调用次数�?
+    // B8: 监听后端推来的频谱数据；只写入目标数组，由 rAF 循环平滑绘制
     await listen<number[]>("spectrum-data", (event) => {
-        spectrumData.value = event.payload;
+        const data = event.payload;
+        if (!data || data.length < SPECTRUM_BAR_COUNT) return;
+        for (let i = 0; i < SPECTRUM_BAR_COUNT; i++) {
+            latestSpectrum[i] = data[i];
+        }
+        // 保留 spectrumData 供调试/兼容，但不驱动 DOM
+        spectrumData.value = data.slice(0, SPECTRUM_BAR_COUNT);
     });
 
     // 初始化时触发一次计�?
@@ -2880,7 +3225,8 @@ onUnmounted(() => {
     clearInterval(musicTimer);
     clearInterval(notifyTimer);
     stopProgressTimer();
-    // 组件卸载时关闭频谱捕获，避免后端空跑
+    // 组件卸载时关闭频谱捕获与 rAF，避免后端/前端空跑
+    stopSpectrumRaf();
     invoke('set_spectrum_active', { active: false }).catch(() => {});
     if (speedCycleTimer) clearInterval(speedCycleTimer);
 });
@@ -3499,26 +3845,19 @@ onUnmounted(() => {
 }
 
 
-/* 音乐律动频谱样式 */
+/* 音乐律动频谱样式（Canvas 2D） */
 .audio-spectrum {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 2px;
     height: 12px;
     padding-right: 2px;
 }
 
-/* 暂停状态下的竖线（统一高度�?*/
-.audio-spectrum .bar {
-    width: 2px;
-    height: 18px;
-    background-color: #b6e0ee;
-    border-radius: 3px;
-    transform-origin: center;
-    /* 改用极速的 ease-out 过渡，让前端完美衔接后端的帧�?*/
-    transition: transform 0.08s ease-out;
-    will-change: transform;
+.spectrum-canvas {
+    display: block;
+    width: 34px;
+    height: 12px;
 }
 
 .music-ctl-box {
