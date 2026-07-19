@@ -319,6 +319,30 @@
                         </label>
                     </div>
 
+                    <div class="set-item spectrum-color-item">
+                        <div class="set-item-meta">
+                            <span class="set-item-title">频谱颜色</span>
+                            <span class="set-item-desc">频谱条取色方式</span>
+                        </div>
+                        <div class="spectrum-color-controls">
+                            <div class="capsule-switch">
+                                <div class="capsule-btn" :class="{ 'is-active': spectrumColorMode === 'album' }"
+                                    @click="spectrumColorMode = 'album'">跟随专辑</div>
+                                <div class="capsule-btn" :class="{ 'is-active': spectrumColorMode === 'theme' }"
+                                    @click="spectrumColorMode = 'theme'">跟随主题</div>
+                                <div class="capsule-btn" :class="{ 'is-active': spectrumColorMode === 'custom' }"
+                                    @click="spectrumColorMode = 'custom'">自定义</div>
+                            </div>
+                            <input
+                                v-if="spectrumColorMode === 'custom'"
+                                type="color"
+                                class="spectrum-color-picker"
+                                v-model="spectrumCustomColor"
+                                title="自定义频谱颜色"
+                            />
+                        </div>
+                    </div>
+
                     <div class="set-item">
                         <div class="set-item-meta">
                             <span class="set-item-title">消息通知接收 <p class="set-item-pro-tag">PRO</p></span>
@@ -495,7 +519,8 @@ import {
     NSD_AUTO_HIDE_ENABLED, NSD_AUTO_HIDE_DELAY,
     NSD_AUTO_COLLAPSE_ENABLED, NSD_AUTO_COLLAPSE_DELAY,
     NSD_THEME_MODE, NSD_TARGET_PLAYER, NSD_TRAFFIC_STATS,
-    NSD_CHART_METRIC, NSD_AUTO_HIDE_FS
+    NSD_CHART_METRIC, NSD_AUTO_HIDE_FS,
+    NSD_SPECTRUM_COLOR_MODE, NSD_SPECTRUM_CUSTOM_COLOR,
 } from '../constants/storageKeys';
 
 const isWidgetVisible = ref(false);
@@ -541,6 +566,8 @@ const setTargetPlayer = async (player: string) => {
 // 灵动岛设置相关的 UI 状态绑定
 const islandTheme = ref(localStorage.getItem(NSD_ISLAND_THEME) || 'black');
 const enableMusicCtrl = ref(localStorage.getItem(NSD_MUSIC_CTRL) === 'true');
+const spectrumColorMode = ref(localStorage.getItem(NSD_SPECTRUM_COLOR_MODE) || 'album');
+const spectrumCustomColor = ref(localStorage.getItem(NSD_SPECTRUM_CUSTOM_COLOR) || '#b6e0ee');
 const enableMsgNotify = ref(localStorage.getItem(NSD_MSG_NOTIFY) === 'true');
 const msgModeEnabled = ref(localStorage.getItem(NSD_MSG_MODE) === 'true');
 const enableRotation = ref(localStorage.getItem(NSD_ROTATION_MODE) === 'true');
@@ -1035,6 +1062,18 @@ watch(enableMusicCtrl, async (newVal) => {
     await emit('control-music-ctl', { enabled: newVal });
     console.log('音乐控制器状态切换为:', newVal);
 });
+
+// 频谱颜色模式 / 自定义色 → 写存储并同步到灵动岛
+const syncSpectrumColor = async () => {
+    localStorage.setItem(NSD_SPECTRUM_COLOR_MODE, spectrumColorMode.value);
+    localStorage.setItem(NSD_SPECTRUM_CUSTOM_COLOR, spectrumCustomColor.value);
+    await emit('control-spectrum-color', {
+        mode: spectrumColorMode.value,
+        color: spectrumCustomColor.value,
+    });
+};
+watch(spectrumColorMode, syncSpectrumColor);
+watch(spectrumCustomColor, syncSpectrumColor);
 
 onMounted(async () => {
     // 告诉 Rust 上次绑定的目标是谁
@@ -2041,6 +2080,27 @@ input:checked+.slider:before {
     color: var(--item-title-color);
     box-shadow: 0 1px 4px var(--card-shadow-hover);
     opacity: 1;
+}
+
+.spectrum-color-item {
+    align-items: flex-start;
+}
+
+.spectrum-color-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.spectrum-color-picker {
+    width: 36px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
 }
 
 
