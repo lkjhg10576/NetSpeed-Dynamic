@@ -14,6 +14,9 @@ static FFT_CACHE: Mutex<Option<(usize, std::sync::Arc<dyn Fft<f32>>)>> = Mutex::
 // 频谱处理开关：仅在前端需要频谱数据时才执行 FFT 运算，空闲时零分配零 CPU
 static SPECTRUM_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+// AGC：每频段滑动峰值包络，使任意音量下视觉幅度一致
+static PEAK_ENV: Mutex<[f32; 5]> = Mutex::new([0.0; 5]);
+
 // B8: 全局 AppHandle，用于向 Tauri 事件系统推送频谱数据（前端从 invoke 轮询改为 listen 被动接收）
 static APP_HANDLE: Mutex<Option<Arc<tauri::AppHandle>>> = Mutex::new(None);
 
@@ -180,20 +183,36 @@ fn process_data(data: &[f32], channels: u16) {
             }
         }
 
-        // 6. 映射高度并平滑过渡
+        // 6. AGC 峰值归一化 → 映射到 0.35~0.95，保证任意音量下视觉幅度一致
         let mut final_spectrum = [0.35_f32; 5];
 
-        // 频段能量补偿权重（大幅压平）：高频保留最基础的补偿，不再强行放大
+        // 频段能量补偿权重：高频保留基础补偿
         let eq_weights = [1.2, 1.1, 1.5, 3.0, 5.0];
-        // 整体小音量放大系数（再次削减）：直接降到个位数，大幅抑制微小底噪的跳动
-        let base_gain = 5.0;
+        // 静音/底噪门限：低于此能量直接归零，避免 AGC 放大底噪
+        const NOISE_FLOOR: f32 = 1e-4;
+        const PEAK_EPS: f32 = 1e-6;
+        const PEAK_DECAY: f32 = 0.98;
 
-        for i in 0..5 {
-            let energy = bins[i] * eq_weights[i] * base_gain;
+        if let Ok(mut peaks) = PEAK_ENV.lock() {
+            for i in 0..5 {
+                let energy = bins[i] * eq_weights[i];
 
-            let scaled = ((energy + 1.0).log10() * 0.20) + 0.35;
+                // 快上升慢衰减的峰值包络
+                if energy > peaks[i] {
+                    peaks[i] = energy;
+                } else {
+                    peaks[i] *= PEAK_DECAY;
+                }
 
-            final_spectrum[i] = scaled.clamp(0.35, 0.95);
+                let normalized = if energy < NOISE_FLOOR {
+                    0.0
+                } else {
+                    (energy / (peaks[i] + PEAK_EPS)).clamp(0.0, 1.0)
+                };
+
+                // 映射到前端基线 0.35 ~ 峰值 0.95
+                final_spectrum[i] = (0.35 + normalized * 0.60).clamp(0.35, 0.95);
+            }
         }
 
         // 7. 更新到全局并应用平滑插值 (Lerp)，防止画面闪烁跳动过于剧烈
