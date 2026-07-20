@@ -536,6 +536,21 @@ const showRtChip = computed(() => {
     return true;
 });
 
+// 启动即同步：当某个实时活动真正活跃（rtActive 为真）时，把对应的 activityConfig.enabled 置真，
+// 使灵动岛上的小图标在软件启动后即时出现——无需用户手动进入实时活动设置页触发 control-activity-config 推送。
+// 修复前 activityConfig.enabled 只能由 LiveActive 挂载时 emit 的事件提供，导致不打开设置页小图标就不显示。
+// 仅在活跃时置 enabled=true，不活跃时保留既有状态（由 LiveActive / localStorage 兜底），避免误关。
+watch(rtActive, (active) => {
+    const next: Record<string, { enabled: boolean; priority: number }> = { ...activityConfig.value };
+    RT_IDS.forEach((id, idx) => {
+        if (active[id]) {
+            const priority = next[id]?.priority ?? idx + 1;
+            next[id] = { enabled: true, priority };
+        }
+    });
+    activityConfig.value = next;
+}, { immediate: true });
+
 // 当前预览（最右小图标所代表）的活动 id（rtActivities[currentRtIndex]?.id 的快捷访问）
 // 注：直接在 template / 计算属性中用 rtActivities[currentRtIndex]?.id，不再单独声明计算属性
 
