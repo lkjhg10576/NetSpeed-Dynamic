@@ -393,6 +393,30 @@
                                 </div>
                             </template>
 
+                            <template v-else-if="item.id === 'sysmsg'">
+                                <div class="sysmsg-config-panel">
+                                    <div class="sysmsg-hint">开启后，系统事件将以通知形式在灵动岛呈现。可单独开关以下类别：</div>
+                                    <div class="sysmsg-filter-grid">
+                                        <label class="sysmsg-filter-item">
+                                            <input type="checkbox" v-model="sysmsgVolume" @change="applySysmsgConfig">
+                                            <span>音量变化</span>
+                                        </label>
+                                        <label class="sysmsg-filter-item">
+                                            <input type="checkbox" v-model="sysmsgPower" @change="applySysmsgConfig">
+                                            <span>电源插拔</span>
+                                        </label>
+                                        <label class="sysmsg-filter-item">
+                                            <input type="checkbox" v-model="sysmsgBattery" @change="applySysmsgConfig">
+                                            <span>电量提醒</span>
+                                        </label>
+                                        <label class="sysmsg-filter-item">
+                                            <input type="checkbox" v-model="sysmsgUnlock" @change="applySysmsgConfig">
+                                            <span>解锁提示</span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </template>
+
                             <template v-else>
                                 <div class="pro-coming-soon">
                                     <div class="loader-line"></div>
@@ -428,6 +452,11 @@ import {
     NSD_WATER_REMINDER_ENABLED,
     NSD_WATER_REMINDER_SECS,
     NSD_ACTIVITY_PRIORITY,
+    NSD_SYSMSG_ENABLED,
+    NSD_SYSMSG_VOLUME_ENABLED,
+    NSD_SYSMSG_POWER_ENABLED,
+    NSD_SYSMSG_BATTERY_ENABLED,
+    NSD_SYSMSG_UNLOCK_ENABLED,
 } from '../constants/storageKeys';
 
 // ===== 三步设置状态 =====
@@ -490,6 +519,13 @@ const wrActive = ref(false);
 const wrAlerting = ref(false);
 const wrRemainingSeconds = ref(0);
 const wrCanSkip = ref(true);
+
+// ===== 系统动态感知（sysmsg）分类开关 =====
+// 默认开启（首次使用即有通知）；关闭某类即不再推送该事件
+const sysmsgVolume = ref(localStorage.getItem(NSD_SYSMSG_VOLUME_ENABLED) !== 'false');
+const sysmsgPower = ref(localStorage.getItem(NSD_SYSMSG_POWER_ENABLED) !== 'false');
+const sysmsgBattery = ref(localStorage.getItem(NSD_SYSMSG_BATTERY_ENABLED) !== 'false');
+const sysmsgUnlock = ref(localStorage.getItem(NSD_SYSMSG_UNLOCK_ENABLED) !== 'false');
 
 const srFormattedRemaining = computed(() => formatRemaining(srRemainingSeconds.value));
 const wrFormattedRemaining = computed(() => formatRemaining(wrRemainingSeconds.value));
@@ -593,6 +629,41 @@ function syncHwToWidget() {
         // 忽略
     }
 }
+
+// ===== 系统动态感知（sysmsg）：把分类开关 + 总开关下发到后端并通知灵动岛 =====
+async function applySysmsgConfig() {
+    const item = activities.value.find(a => a.id === 'sysmsg');
+    const enabled = item ? item.enabled : false;
+    // 持久化
+    localStorage.setItem(NSD_SYSMSG_ENABLED, String(enabled));
+    localStorage.setItem(NSD_SYSMSG_VOLUME_ENABLED, String(sysmsgVolume.value));
+    localStorage.setItem(NSD_SYSMSG_POWER_ENABLED, String(sysmsgPower.value));
+    localStorage.setItem(NSD_SYSMSG_BATTERY_ENABLED, String(sysmsgBattery.value));
+    localStorage.setItem(NSD_SYSMSG_UNLOCK_ENABLED, String(sysmsgUnlock.value));
+    // 下发后端过滤（总闸关闭则全部抑制）
+    try {
+        await invoke('set_system_event_filter', {
+            enabled,
+            volume: sysmsgVolume.value,
+            power: sysmsgPower.value,
+            battery: sysmsgBattery.value,
+            unlock: sysmsgUnlock.value,
+        });
+    } catch (_e) {
+        // 命令可能尚不可用，忽略
+    }
+    // 跨窗口通知灵动岛：同步动态感知总开关（决定是否弹通知）
+    try {
+        emit('control-sysmsg-config', { enabled });
+    } catch (_e) {
+        // 忽略
+    }
+}
+
+// 卡片总开关（item.enabled）变化时同步下发
+watch(() => activities.value.find(a => a.id === 'sysmsg')?.enabled, (v) => {
+    if (v !== undefined) applySysmsgConfig();
+});
 
 function saveCdConfig() {
     localStorage.setItem(NSD_COUNTDOWN_SECS, (cdMinutes.value * 60 + cdSeconds.value).toString());
@@ -744,8 +815,8 @@ const activities = ref([
         title: '系统动态感知',
         desc: '实时捕捉软硬件生态变化',
         accent: '#ff4757',
-        enabled: false,
-        disable: true,
+        enabled: localStorage.getItem(NSD_SYSMSG_ENABLED) === 'true',
+        disable: false,
         priority: 99,
     },
     {
@@ -1022,6 +1093,9 @@ onMounted(async () => {
 
     // 启动后向灵动岛推送一次活动配置（双保险：与 WidgetIsland 自身 onMounted 读 localStorage 互补）
     syncActivityConfig();
+
+    // 同步系统动态感知（sysmsg）的持久化开关到后端与灵动岛
+    applySysmsgConfig();
 
     // 监听各活动 enabled 状态变化，自动同步配置到灵动岛
     watch([isPomoRunning, cdRunning, hwEnabled, srEnabled, wrEnabled], () => {
