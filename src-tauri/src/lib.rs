@@ -502,6 +502,10 @@ fn get_os_tier() -> String {
 /// 对指定 label 窗口应用材质。
 /// 先分别清理 mica/acrylic/blur，再按档 apply，避免材质叠加。
 /// `dark` 仅用于 mica 深/浅主题跟随。
+///
+/// 注意：透明无边框的 `widget`（灵动岛）禁止应用原生材质。
+/// window-vibrancy 会破坏 WebView2 的透明窗口合成，导致整个灵动岛不可见。
+/// 对 widget 只做清场并返回成功，确保旧配置升级后也能恢复显示。
 #[tauri::command]
 fn set_material(
     app: tauri::AppHandle,
@@ -509,6 +513,17 @@ fn set_material(
     material: String,
     dark: bool,
 ) -> Result<(), String> {
+    // 校验材质值（widget 也要校验，避免静默接受错误输入）
+    match material.as_str() {
+        "acrylic" | "mica" | "blur" | "none" => {}
+        _ => return Err(format!("unknown material: {material}")),
+    }
+
+    // 仅允许 main / widget
+    if label != "main" && label != "widget" {
+        return Err(format!("unknown window label: {label}"));
+    }
+
     let win = app
         .get_webview_window(&label)
         .ok_or_else(|| format!("window not found: {label}"))?;
@@ -520,11 +535,17 @@ fn set_material(
         let _ = window_vibrancy::clear_acrylic(&win);
         let _ = window_vibrancy::clear_blur(&win);
 
+        // 灵动岛是透明无边框窗口，原生材质会破坏 WebView2 透明合成
+        if label == "widget" {
+            return Ok(());
+        }
+
         match material.as_str() {
             "acrylic" => window_vibrancy::apply_acrylic(&win, None).map_err(|e| e.to_string()),
             "mica" => window_vibrancy::apply_mica(&win, Some(dark)).map_err(|e| e.to_string()),
             "blur" => window_vibrancy::apply_blur(&win, None).map_err(|e| e.to_string()),
             "none" => Ok(()),
+            // 上方已校验，此处不可达
             _ => Err(format!("unknown material: {material}")),
         }
     }
@@ -532,6 +553,8 @@ fn set_material(
     #[cfg(not(target_os = "windows"))]
     {
         // 非 Windows 仅允许 none，保持跨平台编译可用
+        // 抑制未使用警告
+        let _ = (win, dark);
         match material.as_str() {
             "none" => Ok(()),
             _ => Err(format!(

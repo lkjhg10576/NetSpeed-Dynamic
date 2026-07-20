@@ -338,36 +338,6 @@
                         </div>
                     </div>
 
-                    <div class="set-item material-set-item">
-                        <div class="set-item-meta">
-                            <span class="set-item-title">灵动岛材质</span>
-                            <span class="set-item-desc">Windows 原生背景材质效果</span>
-                        </div>
-                        <div class="material-controls">
-                            <div class="capsule-switch material-switch" role="group" aria-label="灵动岛材质">
-                                <button
-                                    v-for="opt in materialOptions"
-                                    :key="'island-' + opt.value"
-                                    type="button"
-                                    class="capsule-btn"
-                                    :class="{
-                                        'is-active': islandMaterial === opt.value,
-                                        'is-disabled': !isAvailable(osTier, opt.value),
-                                    }"
-                                    :disabled="!isAvailable(osTier, opt.value)"
-                                    :aria-pressed="islandMaterial === opt.value"
-                                    :title="materialOptionTitle(opt.value, false)"
-                                    @click="selectIslandMaterial(opt.value)"
-                                >
-                                    {{ opt.label }}
-                                </button>
-                            </div>
-                            <span v-if="islandMaterial === 'acrylic'" class="material-hint">
-                                实时模糊，GPU 负载较高
-                            </span>
-                        </div>
-                    </div>
-
                     <div class="set-item" :class="{ 'disabled-set-item': enableRotation }">
                         <div class="set-item-meta">
                             <span class="set-item-title">音乐控制器 <p class="set-item-pro-tag">PRO</p></span>
@@ -590,7 +560,9 @@ const opacity = ref(Number(localStorage.getItem(NSD_ISLAND_OPACITY) || '100'));
 const savedTheme = localStorage.getItem(NSD_THEME_MODE) || 'light';
 const themeMode = ref(['light', 'dark', 'system'].includes(savedTheme) ? savedTheme : 'light');
 
-// --- Windows 材质（控制台 / 灵动岛独立） ---
+// --- Windows 材质（仅控制台） ---
+// 灵动岛是透明无边框窗口，原生 window-vibrancy 材质会破坏 WebView2 透明合成，
+// 导致整个灵动岛不可见；外观继续由 islandTheme / islandOpacity 控制。
 type Material = 'acrylic' | 'mica' | 'blur' | 'none';
 type OsTier = 'win11' | 'win10' | 'legacy';
 
@@ -604,7 +576,6 @@ const materialOptions: { value: Material; label: string }[] = [
 
 const osTier = ref<OsTier>('win11');
 const consoleMaterial = ref<Material>('mica');
-const islandMaterial = ref<Material>('mica');
 const materialsReady = ref(false);
 
 const defaultForTier = (t: OsTier): Material => {
@@ -622,8 +593,8 @@ const isAvailable = (t: OsTier, m: Material): boolean => {
 const isMaterial = (value: string | null): value is Material =>
     !!value && (MATERIAL_VALUES as string[]).includes(value);
 
-const resolveMaterial = (which: 'console' | 'island'): Material => {
-    const key = which === 'console' ? 'nsd_console_material' : 'nsd_island_material';
+const resolveConsoleMaterial = (): Material => {
+    const key = 'nsd_console_material';
     const saved = localStorage.getItem(key);
     if (isMaterial(saved) && isAvailable(osTier.value, saved)) {
         return saved;
@@ -631,6 +602,14 @@ const resolveMaterial = (which: 'console' | 'island'): Material => {
     const def = defaultForTier(osTier.value);
     localStorage.setItem(key, def);
     return def;
+};
+
+/** 将旧版灵动岛材质配置迁移为 none，避免启动后再次破坏透明窗口 */
+const migrateIslandMaterialAway = () => {
+    const saved = localStorage.getItem('nsd_island_material');
+    if (saved && saved !== 'none') {
+        localStorage.setItem('nsd_island_material', 'none');
+    }
 };
 
 /** 实际生效的深色状态（system 跟随 matchMedia / root class） */
@@ -643,33 +622,25 @@ const isEffectiveDark = (): boolean => {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
 };
 
-const applyWindowMaterial = async (label: 'main' | 'widget', material: Material) => {
+/** 仅对控制台（main）应用材质；widget 绝不调用原生材质 */
+const applyConsoleMaterial = async (material: Material = consoleMaterial.value) => {
     try {
         await invoke('set_material', {
-            label,
+            label: 'main',
             material,
             dark: isEffectiveDark(),
         });
     } catch (e) {
-        console.error(`[NSD] set_material(${label}, ${material}) failed:`, e);
+        console.error(`[NSD] set_material(main, ${material}) failed:`, e);
     }
 };
 
-const applyMaterials = async () => {
-    await Promise.all([
-        applyWindowMaterial('main', consoleMaterial.value),
-        applyWindowMaterial('widget', islandMaterial.value),
-    ]);
-};
-
-const materialOptionTitle = (value: Material, isConsole: boolean): string => {
+const materialOptionTitle = (value: Material, _isConsole: boolean): string => {
     if (!isAvailable(osTier.value, value)) {
         return '当前系统不支持';
     }
     if (value === 'acrylic') {
-        return isConsole
-            ? '实时模糊，GPU 负载较高；窗口越大负载越高'
-            : '实时模糊，GPU 负载较高';
+        return '实时模糊，GPU 负载较高；窗口越大负载越高';
     }
     return '';
 };
@@ -677,11 +648,6 @@ const materialOptionTitle = (value: Material, isConsole: boolean): string => {
 const selectConsoleMaterial = (value: Material) => {
     if (!isAvailable(osTier.value, value)) return;
     consoleMaterial.value = value;
-};
-
-const selectIslandMaterial = (value: Material) => {
-    if (!isAvailable(osTier.value, value)) return;
-    islandMaterial.value = value;
 };
 
 const uploadSpeed = ref('0 B/s');
@@ -1192,7 +1158,7 @@ const handleThemeChange = () => {
     localStorage.setItem(NSD_THEME_MODE, themeMode.value);
     applyTheme();
     if (materialsReady.value) {
-        void applyMaterials();
+        void applyConsoleMaterial();
     }
 };
 
@@ -1200,7 +1166,7 @@ const handleSystemThemeUpdate = () => {
     if (themeMode.value === 'system') {
         applyTheme();
         if (materialsReady.value) {
-            void applyMaterials();
+            void applyConsoleMaterial();
         }
     }
 };
@@ -1208,13 +1174,7 @@ const handleSystemThemeUpdate = () => {
 watch(consoleMaterial, (val) => {
     if (!materialsReady.value) return;
     localStorage.setItem('nsd_console_material', val);
-    void applyWindowMaterial('main', val);
-});
-
-watch(islandMaterial, (val) => {
-    if (!materialsReady.value) return;
-    localStorage.setItem('nsd_island_material', val);
-    void applyWindowMaterial('widget', val);
+    void applyConsoleMaterial(val);
 });
 
 watch(opacity, async (newVal) => {
@@ -1276,10 +1236,22 @@ onMounted(async () => {
         console.error('[NSD] get_os_tier failed, fallback legacy:', e);
         osTier.value = 'legacy';
     }
-    consoleMaterial.value = resolveMaterial('console');
-    islandMaterial.value = resolveMaterial('island');
+    // 迁移旧版灵动岛材质配置，并确保 widget 不应用原生材质
+    migrateIslandMaterialAway();
+    try {
+        // 清场：若此前对 widget 应用过 mica/acrylic/blur，启动时清除
+        await invoke('set_material', {
+            label: 'widget',
+            material: 'none',
+            dark: isEffectiveDark(),
+        });
+    } catch (e) {
+        // widget 窗口可能尚未创建，忽略
+        console.warn('[NSD] clear widget material skipped:', e);
+    }
+    consoleMaterial.value = resolveConsoleMaterial();
     materialsReady.value = true;
-    await applyMaterials();
+    await applyConsoleMaterial();
 
     // 监听后端推送的 monitor-stats 事件（硬件 + 网速统一）
     unlistenMonitorStats = await listen<any>('monitor-stats', (event) => {
@@ -1520,25 +1492,77 @@ const toggleWidget = async () => {
     --data-tag-color: #f8fafc;
 }
 
-/* 材质开启时：浅色半透明，让 DWM 材质透出；none 保持上方实色变量 */
+/* 材质开启时：用半透明层模拟磨砂；none 保持上方实色变量 */
 .panel-container[data-console-material="acrylic"],
-.panel-container[data-console-material="mica"],
+.panel-container[data-console-material="mica"] {
+    --bg-body: rgba(248, 250, 252, 0.62);
+    --card-bg: rgba(255, 255, 255, 0.72);
+    --modal-bg: rgba(255, 255, 255, 0.78);
+    --control-bg: rgba(255, 255, 255, 0.70);
+    --select-bg: rgba(255, 255, 255, 0.70);
+}
+
 .panel-container[data-console-material="blur"] {
-    --bg-body: rgba(248, 250, 252, 0.72);
-    --card-bg: rgba(255, 255, 255, 0.82);
-    --modal-bg: rgba(255, 255, 255, 0.88);
-    --control-bg: rgba(255, 255, 255, 0.78);
-    --select-bg: rgba(255, 255, 255, 0.78);
+    --bg-body: rgba(248, 250, 252, 0.55);
+    --card-bg: rgba(255, 255, 255, 0.62);
+    --modal-bg: rgba(255, 255, 255, 0.68);
+    --control-bg: rgba(255, 255, 255, 0.64);
+    --select-bg: rgba(255, 255, 255, 0.64);
 }
 
 :global(.dark-theme) .panel-container[data-console-material="acrylic"],
-:global(.dark-theme) .panel-container[data-console-material="mica"],
+:global(.dark-theme) .panel-container[data-console-material="mica"] {
+    --bg-body: rgba(20, 22, 23, 0.88);
+    --card-bg: rgba(30, 32, 34, 0.90);
+    --modal-bg: rgba(34, 36, 38, 0.92);
+    --control-bg: rgba(26, 28, 30, 0.88);
+    --select-bg: rgba(26, 28, 30, 0.88);
+    --text-body: #f1f5f9;
+    --h1-color: #ffffff;
+    --subtitle-color: #cbd5e1;
+    --speed-label: #e2e8f0;
+    --speed-value: #ffffff;
+    --item-title-color: #f1f5f9;
+    --item-desc-color: #94a3b8;
+    --card-h3-color: #f1f5f9;
+    --status-badge-inactive: #94a3b8;
+    --status-badge-active: #ffffff;
+    --divider-border: rgba(255, 255, 255, 0.12);
+    --control-border: rgba(255, 255, 255, 0.14);
+    --card-border: rgba(255, 255, 255, 0.12);
+    --slider-bg: #4b5563;
+    --slider-checked-bg: #6b7280;
+    --select-text: #f1f5f9;
+    --tag-dev-bg: rgba(255, 255, 255, 0.08);
+    --tag-dev-color: #e2e8f0;
+    --footer-text: #cbd5e1aa;
+}
+
 :global(.dark-theme) .panel-container[data-console-material="blur"] {
-    --bg-body: rgba(30, 32, 33, 0.72);
-    --card-bg: rgba(41, 43, 46, 0.82);
-    --modal-bg: rgba(41, 43, 46, 0.88);
-    --control-bg: rgba(41, 43, 46, 0.78);
-    --select-bg: rgba(41, 43, 46, 0.78);
+    --bg-body: rgba(10, 12, 13, 0.82);
+    --card-bg: rgba(18, 20, 22, 0.86);
+    --modal-bg: rgba(22, 24, 26, 0.88);
+    --control-bg: rgba(14, 16, 18, 0.84);
+    --select-bg: rgba(14, 16, 18, 0.84);
+    --text-body: #f8fafc;
+    --h1-color: #ffffff;
+    --subtitle-color: #e2e8f0;
+    --speed-label: #f1f5f9;
+    --speed-value: #ffffff;
+    --item-title-color: #f8fafc;
+    --item-desc-color: #cbd5e1;
+    --card-h3-color: #f8fafc;
+    --status-badge-inactive: #cbd5e1;
+    --status-badge-active: #ffffff;
+    --divider-border: rgba(255, 255, 255, 0.16);
+    --control-border: rgba(255, 255, 255, 0.18);
+    --card-border: rgba(255, 255, 255, 0.16);
+    --slider-bg: #4b5563;
+    --slider-checked-bg: #7a828d;
+    --select-text: #f8fafc;
+    --tag-dev-bg: rgba(255, 255, 255, 0.10);
+    --tag-dev-color: #e2e8f0;
+    --footer-text: #e2e8f0aa;
 }
 
 /*原有布局及节点样式 */
@@ -2304,8 +2328,7 @@ input:checked+.slider:before {
     outline-offset: 1px;
 }
 
-.material-setting-item,
-.material-set-item {
+.material-setting-item {
     align-items: flex-start;
 }
 
