@@ -395,6 +395,7 @@ import {
     NSD_HW_MODE,
     NSD_HW_DEFAULT_METRIC,
     NSD_ACTIVITY_PRIORITY,
+    NSD_SYSMSG_ENABLED,
 } from '../constants/storageKeys';
 
 const isIslandVisible = ref(false);
@@ -798,6 +799,21 @@ const showToast = (text: string, type: 'app' | 'sys' | 'battery-charge' | 'batte
     toastQueue.value.push({ text, type });
     processToastQueue();
 };
+
+// ===== 系统动态感知（sysmsg）=====
+// 总开关：默认 false；由控制台动态感知卡片控制（本地 + control-sysmsg-config 即时同步）
+const isSysmsgEnabled = ref(localStorage.getItem(NSD_SYSMSG_ENABLED) === 'true');
+
+// 把后端结构化 sysmsg-event 映射成灵动岛通知类型
+function showSysmsgToast(p: { kind: string; level: string; text: string }) {
+    let type: 'app' | 'sys' | 'battery-charge' | 'battery-low' | 'lock' | 'unlock' = 'sys';
+    if (p.kind === 'unlock') type = 'unlock';
+    else if (p.kind === 'lock') type = 'lock';
+    else if (p.kind === 'power') type = p.level === 'success' ? 'battery-charge' : 'sys';
+    else if (p.kind === 'battery') type = p.level === 'warn' ? 'battery-low' : 'battery-charge';
+    else type = 'sys'; // 音量 / 网络 / 默认
+    showToast(p.text, type);
+}
 
 // 监听消息通知状态，一旦消息通知消失，立刻唤醒可能被挂起的操作通知队列
 watch(isMsgActive, (newVal) => {
@@ -1543,6 +1559,8 @@ const checkNetworkLatency = async () => {
 
 // 监听网络状态变化，触发系统通知
 watch(networkStatus, (newStatus, oldStatus) => {
+    // 网络断连/恢复通知归入动态感知：受总开关管控
+    if (!isSysmsgEnabled.value) return;
     // 忽略初始化时的变化，确保是真的状态翻�?
     if (oldStatus && oldStatus !== newStatus) {
         if (newStatus === 'error') {
@@ -2370,20 +2388,16 @@ onMounted(async () => {
         }
     });
 
-    // 监听系统底层事件（音量、电源）
-    await listen<string>('system-event', (event) => {
-        showToast(event.payload, 'sys');
+    // 监听系统动态感知（sysmsg）结构化事件：后端统一推送，前端按需弹通知
+    await listen<{ kind: string; level: string; text: string }>('sysmsg-event', (event) => {
+        if (isSysmsgEnabled.value) {
+            showSysmsgToast(event.payload);
+        }
     });
 
-    await listen<{ state: 'charging' | 'discharging', percent: number }>('battery-event', (event) => {
-        const { state, percent } = event.payload;
-
-        if (state === 'charging') {
-            showToast(`已接入电源，当前电量 ${percent}%`, 'battery-charge');
-        } else if (state === 'discharging' && percent <= 20) {
-            // 这里还可以加入防抖：只在刚掉�?20%�?0%�?% 等关键节点触发一次，避免疯狂弹窗
-            showToast(`电池电量低，剩余 ${percent}%`, 'battery-low');
-        }
+    // 跨窗口同步动态感知总开关（由控制台卡片切换触发）
+    await listen<{ enabled: boolean }>('control-sysmsg-config', (event) => {
+        isSysmsgEnabled.value = event.payload.enabled;
     });
 
     // 监听来自控制台的透明度同步指�?
