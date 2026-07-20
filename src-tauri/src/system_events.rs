@@ -154,14 +154,14 @@ pub fn start_monitor(app: AppHandle) {
         }
 
         loop {
-            // 音量活跃窗口内 300ms；刚有其它变化 600ms；完全空闲 1200ms（不再 2000ms 以免调音量首帧过慢）
+            // 音量活跃窗口内 300ms（保证连续调音不漏）；刚有其它变化 600ms；完全空闲 2000ms 省性能
             let volume_hot = last_volume_change_at
                 .map(|t| t.elapsed() < Duration::from_millis(2500))
                 .unwrap_or(false);
             let sleep_ms = if volume_hot {
                 300
             } else if stability_counter >= 3 {
-                1200
+                2000
             } else {
                 600
             };
