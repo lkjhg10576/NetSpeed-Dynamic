@@ -536,6 +536,7 @@ pub fn run() {
             health_reminder::dismiss_water_alert,
             health_reminder::skip_water_reminder,
             health_reminder::get_health_reminder_state,
+            system_events::set_system_event_filter,
         ])
         .setup(|app| {
             // B8: 注册 AppHandle 到 audio_spectrum 模块，支持 emit 频谱事件
