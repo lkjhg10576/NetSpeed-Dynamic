@@ -7,8 +7,11 @@ use windows::Win32::Media::Audio::Endpoints::IAudioEndpointVolume;
 use windows::Win32::Media::Audio::{eConsole, eRender, IMMDeviceEnumerator, MMDeviceEnumerator};
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_MULTITHREADED};
 use windows::Win32::System::Power::{GetSystemPowerStatus, SYSTEM_POWER_STATUS};
-use windows::Win32::UI::WindowsAndMessaging::{CloseDesktop, OpenInputDesktop};
-use windows::Win32::Foundation::{ACCESS_MASK, BOOL, GENERIC_READ};
+// 锁屏检测改用 winapi 0.3：其 OpenInputDesktop/CloseDesktop/GENERIC_READ API 在
+// Win32_UI_WindowsAndMessaging / Win32_Foundation 下稳定且无需特殊处理（windows 0.58 的
+// 桌面函数在该特性组合下未导出，会导致编译失败）。
+use winapi::um::winuser::{CloseDesktop, OpenInputDesktop};
+use winapi::um::winnt::GENERIC_READ;
 
 // 结构化系统事件载荷（取代原纯文本 system-event / 结构化 battery-event）
 // kind ∈ {volume, power, battery, network, lock, unlock}
@@ -196,9 +199,11 @@ fn is_desktop_unlocked() -> Option<bool> {
     #[cfg(target_os = "windows")]
     {
         unsafe {
-            let h = OpenInputDesktop(0u32, BOOL::FALSE, ACCESS_MASK(GENERIC_READ));
-            if h.is_invalid() {
-                // 打不开输入桌面 → 已锁定
+            // OpenInputDesktop：锁屏时输入桌面不可打开，返回 NULL；可操作时返回有效句柄。
+            // dwFlags=0，fInherit=FALSE(0)，dwDesiredAccess=GENERIC_READ。
+            let h = OpenInputDesktop(0, 0, GENERIC_READ);
+            if h.is_null() {
+                // 打不开输入桌面（返回 NULL）→ 已锁定
                 return Some(false);
             }
             let _ = CloseDesktop(h);
