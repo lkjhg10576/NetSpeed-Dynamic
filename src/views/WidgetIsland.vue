@@ -408,20 +408,33 @@ let desiredIslandVisible = false;
 const showIslandWindow = async (withEnterDelay = false) => {
     desiredIslandVisible = true;
     const token = ++visibilityOperationToken;
-    await getCurrentWindow().show();
-    if (token !== visibilityOperationToken) return;
-    await getCurrentWindow().setAlwaysOnTop(true);
-    if (token !== visibilityOperationToken) return;
-    if (withEnterDelay) {
-        await new Promise<void>((resolve) => setTimeout(resolve, 40));
-    }
-    if (token !== visibilityOperationToken) return;
+    try {
+        await getCurrentWindow().show();
+        if (token !== visibilityOperationToken) return;
+        await getCurrentWindow().setAlwaysOnTop(true);
+        if (token !== visibilityOperationToken) return;
+        if (withEnterDelay) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 40));
+        }
+        if (token !== visibilityOperationToken) return;
 
-    isIslandVisible.value = true;
-    await nextTick();
-    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-    if (token === visibilityOperationToken && desiredIslandVisible && isIslandVisible.value) {
-        await emit('island-status-sync', { visible: true });
+        isIslandVisible.value = true;
+        await nextTick();
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        if (token === visibilityOperationToken && desiredIslandVisible && isIslandVisible.value) {
+            await emit('island-status-sync', { visible: true });
+        }
+    } catch (e) {
+        console.error('[NSD] showIslandWindow failed:', e);
+        // 即使 show/setAlwaysOnTop 失败，也尽量恢复 DOM 并回执，避免控制台开关假死。
+        if (token === visibilityOperationToken && desiredIslandVisible) {
+            isIslandVisible.value = true;
+            try {
+                await emit('island-status-sync', { visible: true });
+            } catch (syncErr) {
+                console.error('[NSD] island-status-sync failed:', syncErr);
+            }
+        }
     }
 };
 
@@ -433,8 +446,10 @@ const hideIslandWindow = () => {
     isIslandVisible.value = false;
     // 若 DOM 尚未显示（show 仍在 await），不会触发 Vue leave，需直接隐藏透明 OS 窗口。
     // 已显示时则保留原有离场动画，由 onLeave 在结束后隐藏。
+    // 自动隐藏/全屏隐藏只会在 wasVisible===true 时触发，因此 !wasVisible 路径可安全回执 false。
     if (!wasVisible) {
         void getCurrentWindow().hide().catch(() => {});
+        void emit('island-status-sync', { visible: false }).catch(() => {});
     }
 };
 

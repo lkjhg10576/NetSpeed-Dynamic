@@ -432,6 +432,126 @@ fn is_widget_visible(app: tauri::AppHandle) -> bool {
     }
 }
 
+/// 灵动岛（widget）是否存在于 AppHandle 中（不代表 Vue 内容已渲染）。
+#[tauri::command]
+fn is_widget_alive(app: tauri::AppHandle) -> bool {
+    app.get_webview_window("widget").is_some()
+}
+
+/// 为透明无边框灵动岛套用 Windows DWM 属性（去标题/圆角/边框），绝不动 window-vibrancy。
+#[cfg(target_os = "windows")]
+fn apply_widget_dwm_attrs(widget_window: &tauri::WebviewWindow) {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::Graphics::Dwm::{
+        DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_CAPTION,
+    };
+
+    if let Ok(hwnd) = widget_window.hwnd() {
+        let hwnd_raw = hwnd.0 as HWND;
+        unsafe {
+            let current_style = GetWindowLongPtrW(hwnd_raw, GWL_STYLE);
+            SetWindowLongPtrW(hwnd_raw, GWL_STYLE, current_style & !(WS_CAPTION as isize));
+
+            let border_color: u32 = 0xFFFFFFFE;
+            let _ = DwmSetWindowAttribute(
+                hwnd_raw,
+                DWMWA_BORDER_COLOR as u32,
+                &border_color as *const _ as *const _,
+                4,
+            );
+
+            let corner_preference = DWMWCP_DONOTROUND;
+            let _ = DwmSetWindowAttribute(
+                hwnd_raw,
+                DWMWA_WINDOW_CORNER_PREFERENCE as u32,
+                &corner_preference as *const _ as *const _,
+                4,
+            );
+        }
+    }
+}
+
+/// 确保灵动岛 WebView 窗口存在；缺失时按 tauri.conf 参数重建。
+/// 注意：不对 widget 调用任何 window-vibrancy API。
+fn ensure_widget_window(app: &tauri::AppHandle) -> Result<tauri::WebviewWindow, String> {
+    if let Some(win) = app.get_webview_window("widget") {
+        return Ok(win);
+    }
+
+    let builder = WebviewWindowBuilder::new(app, "widget", WebviewUrl::App("/widget".into()))
+        .title("MDI Widget")
+        .inner_size(210.0, 36.0)
+        .resizable(false)
+        .maximizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .visible(false)
+        .skip_taskbar(true)
+        .shadow(false);
+
+    let win = builder
+        .build()
+        .map_err(|e| format!("重建灵动岛窗口失败: {e}"))?;
+
+    #[cfg(target_os = "windows")]
+    {
+        apply_widget_dwm_attrs(&win);
+    }
+
+    Ok(win)
+}
+
+/// 控制台开关的后端权威入口：确保 widget 存活，并强制 show/hide。
+/// 同时发出 `control-island-visibility`，驱动 WidgetIsland 的 Vue DOM 状态。
+///
+/// 仅依赖前端跨 WebView 事件时，若 widget 未就绪/已崩溃，会出现
+/// “开关点了没反应、一直已关闭”的假死状态；本命令提供兜底。
+#[tauri::command]
+fn set_island_visible(app: tauri::AppHandle, show: bool) -> Result<bool, String> {
+    // 记录创建前是否缺失，用于重建后延迟重发事件（新 WebView 需加载完 JS 才有 listener）
+    let was_missing = app.get_webview_window("widget").is_none();
+    let win = ensure_widget_window(&app)?;
+
+    // 立即广播：已存在的 widget 可马上响应
+    let _ = app.emit("control-island-visibility", serde_json::json!({ "show": show }));
+
+    if show {
+        win.show().map_err(|e| format!("显示灵动岛失败: {e}"))?;
+        let _ = win.set_always_on_top(true);
+
+        // 重建场景：前端 listener 可能尚未注册，延迟多次重发，覆盖冷启动窗口
+        if was_missing {
+            let app_retry = app.clone();
+            std::thread::spawn(move || {
+                for delay_ms in [120u64, 320, 700] {
+                    std::thread::sleep(Duration::from_millis(delay_ms));
+                    let _ = app_retry.emit(
+                        "control-island-visibility",
+                        serde_json::json!({ "show": true }),
+                    );
+                    if let Some(w) = app_retry.get_webview_window("widget") {
+                        let _ = w.show();
+                        let _ = w.set_always_on_top(true);
+                    }
+                }
+            });
+        }
+    } else {
+        // Vue 离场动画约 300ms；若 WebView 已挂，延迟强制 hide 兜底
+        let win_hide = win.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(350));
+            let _ = win_hide.hide();
+        });
+    }
+
+    Ok(show)
+}
+
 #[tauri::command]
 fn set_destroy_on_close(enabled: bool) {
     DESTROY_ON_CLOSE.store(enabled, Ordering::Relaxed);
@@ -616,6 +736,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_network_stats,
             is_widget_visible,
+            is_widget_alive,
+            set_island_visible,
             set_destroy_on_close,
             close_main_window,
             get_os_tier,
@@ -797,28 +919,16 @@ pub fn run() {
                 bind_main_window_close_event(&main_window);
             }
 
-            if let Some(widget_window) = app.get_webview_window("widget") {
-                #[cfg(target_os = "windows")]
-                {
-                    use windows_sys::Win32::Graphics::Dwm::{
-                        DwmSetWindowAttribute, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWA_BORDER_COLOR, DWMWCP_DONOTROUND,
-                    };
-                    use windows_sys::Win32::UI::WindowsAndMessaging::{SetWindowLongPtrW, GWL_STYLE, WS_CAPTION};
-                    use windows_sys::Win32::Foundation::HWND;
-
-                    if let Ok(hwnd) = widget_window.hwnd() {
-                        let hwnd_raw = hwnd.0 as HWND;
-                        unsafe {
-                            let current_style = windows_sys::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(hwnd_raw, GWL_STYLE);
-                            SetWindowLongPtrW(hwnd_raw, GWL_STYLE, current_style & !(WS_CAPTION as isize));
-
-                            let border_color: u32 = 0xFFFFFFFE;
-                            let _ = DwmSetWindowAttribute(hwnd_raw, DWMWA_BORDER_COLOR as u32, &border_color as *const _ as *const _, 4);
-
-                            let corner_preference = DWMWCP_DONOTROUND;
-                            let _ = DwmSetWindowAttribute(hwnd_raw, DWMWA_WINDOW_CORNER_PREFERENCE as u32, &corner_preference as *const _ as *const _, 4);
-                        }
+            // 启动时确保灵动岛 WebView 存在（仅创建/套 DWM，不 show）
+            match ensure_widget_window(app.handle()) {
+                Ok(widget_window) => {
+                    #[cfg(target_os = "windows")]
+                    {
+                        apply_widget_dwm_attrs(&widget_window);
                     }
+                }
+                Err(e) => {
+                    eprintln!("[NSD] 启动时创建灵动岛失败: {e}");
                 }
             }
             Ok(())

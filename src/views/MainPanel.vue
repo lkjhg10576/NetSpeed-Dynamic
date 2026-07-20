@@ -1337,12 +1337,30 @@ onMounted(async () => {
         isWidgetVisible.value = event.payload.visible;
     });
 
-    // 不再用 OS 窗口 visible 直接判断：透明容器可见不代表 Vue 灵动岛已渲染。
-    // WidgetIsland 会在 show + nextTick + requestAnimationFrame 后发送 island-status-sync。
-    // 控制台和 widget 并行启动，短暂重试查询可覆盖双方监听器注册顺序的竞争。
+    // 1) 优先问 WidgetIsland 自己的渲染态（Vue 层）。
+    // 2) 若 widget 已不存在/未就绪，request 会空转；再走后端 is_widget_alive + OS visible 兜底。
+    // 控制台与 widget 并行启动，短重试覆盖监听器注册顺序竞争。
     for (let i = 0; i < 6 && !isWidgetVisible.value; i++) {
         await emit('request-island-visibility');
         await new Promise(r => setTimeout(r, 200));
+    }
+    if (!isWidgetVisible.value) {
+        try {
+            const alive = await invoke<boolean>('is_widget_alive');
+            if (alive) {
+                const visible = await invoke<boolean>('is_widget_visible');
+                // OS 可见只作为“至少窗口在了”的弱信号；仍等待 Vue sync 校准。
+                // 不在这里强制 true，避免把“透明容器空窗”误标为已开启。
+                if (visible) {
+                    await emit('request-island-visibility');
+                }
+            } else {
+                // 启动时 widget 缺失：不自动创建显示，保持已关闭，等用户点开关走 set_island_visible 重建。
+                console.warn('[NSD] widget window missing at startup');
+            }
+        } catch (e) {
+            console.warn('[NSD] island visibility probe failed:', e);
+        }
     }
 });
 
@@ -1354,12 +1372,43 @@ onUnmounted(() => {
 
 const toggleWidget = async () => {
     const nextState = !isWidgetVisible.value;
-    await emit('control-island-visibility', { show: nextState });
 
-    // 关闭可以立即反映；开启必须等灵动岛完成 OS show + Vue 首帧渲染后，
-    // 由 island-status-sync 确认，避免“控制台已开启但实际仍不可见”的假状态。
-    if (!nextState) {
-        isWidgetVisible.value = false;
+    // 关闭可以立即反映；开启先乐观更新，避免旧逻辑“只发事件不回执 → 永远已关闭”。
+    // 最终以 island-status-sync / set_island_visible 结果为准。
+    isWidgetVisible.value = nextState;
+
+    try {
+        // 后端权威入口：确保 widget 存活 + 强制 show/hide + 广播 Vue 事件
+        await invoke<boolean>('set_island_visible', { show: nextState });
+    } catch (e) {
+        console.error('[NSD] set_island_visible failed, fallback emit:', e);
+        // 兜底：旧路径纯事件（兼容后端命令尚未可用的场景）
+        try {
+            await emit('control-island-visibility', { show: nextState });
+        } catch (emitErr) {
+            console.error('[NSD] control-island-visibility emit failed:', emitErr);
+            isWidgetVisible.value = !nextState;
+            return;
+        }
+    }
+
+    // 开启后短暂等待 Vue 回执；若仍未确认，用 OS visible 做最后兜底，防止 UI 假死。
+    if (nextState) {
+        const started = Date.now();
+        while (Date.now() - started < 1200) {
+            await new Promise(r => setTimeout(r, 150));
+            if (isWidgetVisible.value) return;
+            try {
+                const visible = await invoke<boolean>('is_widget_visible');
+                if (visible) {
+                    isWidgetVisible.value = true;
+                    return;
+                }
+            } catch { /* ignore */ }
+        }
+        // 超时仍无确认：保持乐观开启状态，避免开关“点了没反应”。
+        // 若窗口其实没起来，用户再关再开会走 ensure_widget_window 重建。
+        isWidgetVisible.value = true;
     }
 };
 </script>
