@@ -74,3 +74,4 @@ export const NSD_SYSMSG_ENABLED = 'nsd_sysmsg_enabled';
 export const NSD_SYSMSG_VOLUME_ENABLED = 'nsd_sysmsg_volume_enabled';
 export const NSD_SYSMSG_POWER_ENABLED = 'nsd_sysmsg_power_enabled';
 export const NSD_SYSMSG_BATTERY_ENABLED = 'nsd_sysmsg_battery_enabled';
+export const NSD_SYSMSG_UNLOCK_ENABLED = 'nsd_sysmsg_unlock_enabled';
