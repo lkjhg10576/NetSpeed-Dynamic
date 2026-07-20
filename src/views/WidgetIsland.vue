@@ -405,10 +405,10 @@ let visibilityOperationToken = 0;
 let desiredIslandVisible = false;
 // 入场/离场 rAF 句柄：快速开关时必须取消旧动画，否则 leave 会把 opacity 写回 0 造成“看不见”
 let visibilityAnimFrameId = 0;
-// 必须在 hideIslandWindow 之前声明，避免 TDZ
-let isAutoHiding = false;
-let isHidingForFullscreen = false;
+// 必须在 show/hide 之前声明，避免 TDZ
+// 自动隐藏/全屏隐藏现已统一把 paint=false 同步到控制台，不再需要区分 reason 标志。
 let wasVisibleBeforeFullscreen = false;
+let autoHideTimer: number | null = null;
 
 // 用户是否仍希望岛开启。auto-hide / 全屏 hide 不改变此意图；控制台开关与右键关闭会改写。
 const userWantsIslandVisible = () => localStorage.getItem(NSD_ISLAND_ENABLED) !== 'false';
@@ -432,9 +432,11 @@ const resetIslandVisualStyle = (el?: Element | null) => {
 /** OS 窗口显示并且 Vue 完成一帧渲染后，再向控制台确认灵动岛真正可见。 */
 const showIslandWindow = async (withEnterDelay = false) => {
     desiredIslandVisible = true;
-    // 重新显示时清理自动隐藏/全屏隐藏标志，避免 leave 收尾逻辑误判
-    isAutoHiding = false;
-    isHidingForFullscreen = false;
+    // 取消挂起的自动隐藏，避免“刚打开就被 2s 定时器藏掉”
+    if (autoHideTimer) {
+        clearTimeout(autoHideTimer);
+        autoHideTimer = null;
+    }
     const token = ++visibilityOperationToken;
     cancelVisibilityAnimation();
     try {
@@ -459,6 +461,7 @@ const showIslandWindow = async (withEnterDelay = false) => {
         });
         if (token === visibilityOperationToken && desiredIslandVisible && isIslandVisible.value) {
             resetIslandVisualStyle();
+            // 控制台开关跟随真实 paint 态（含 auto-hide 收起后的重显）
             await emit('island-status-sync', { visible: true });
         }
     } catch (e) {
@@ -479,22 +482,18 @@ const showIslandWindow = async (withEnterDelay = false) => {
 /** 使尚未完成的显示操作失效，再触发 Vue 离场动画。 */
 const hideIslandWindow = () => {
     const wasVisible = isIslandVisible.value;
-    const leaveWasAutoHiding = isAutoHiding;
-    const leaveWasFullscreen = isHidingForFullscreen;
     desiredIslandVisible = false;
     visibilityOperationToken++;
     cancelVisibilityAnimation();
     isIslandVisible.value = false;
+    // 立刻同步 paint=false：无论用户关闭 / 自动隐藏 / 全屏隐藏。
+    // 否则开关停在“已开启”，用户再点一次会变成“关闭”而不是“重新显示”。
+    // 用户意图 nsd_island_enabled 不在这里改写（仅控制台开关 / 右键关闭改写）。
+    void emit('island-status-sync', { visible: false }).catch(() => {});
     // 若 DOM 尚未显示（show 仍在 await），不会触发 Vue leave，需直接隐藏透明 OS 窗口。
-    // 已显示时则保留原有离场动画，由 onLeave 在结束后隐藏。
+    // 已显示时则保留原有离场动画，由 onLeave 在结束后 hide OS 窗口。
     if (!wasVisible) {
         void getCurrentWindow().hide().catch(() => {});
-        // 仅用户主动关闭时回执 false；auto-hide/全屏隐藏不改开关（意图仍开）
-        if (!leaveWasAutoHiding && !leaveWasFullscreen) {
-            void emit('island-status-sync', { visible: false }).catch(() => {});
-        }
-        isAutoHiding = false;
-        isHidingForFullscreen = false;
     }
 };
 
@@ -517,7 +516,7 @@ const isHealthAlerting = ref(false);
 const healthAlertLabel = ref('');
 const healthAlertType = ref<'sitting' | 'water'>('sitting');
 
-// 全屏自动隐藏相关（wasVisibleBeforeFullscreen / isHidingForFullscreen 已在顶部可见性模块声明）
+// 全屏自动隐藏相关（wasVisibleBeforeFullscreen 已在顶部可见性模块声明）
 const isAutoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
 
 // 番茄钟计算属性
@@ -819,7 +818,7 @@ const handleCdClose = async () => {
 
 // 自动隐藏相关变量
 const isMouseOver = ref(false);
-let autoHideTimer: number | null = null;
+// autoHideTimer 已在顶部可见性模块声明
 const autoHideDelay = ref(Number(localStorage.getItem(NSD_AUTO_HIDE_DELAY) || '2000')); // 默认2秒
 const isAutoHideEnabled = ref(localStorage.getItem(NSD_AUTO_HIDE_ENABLED) === 'true'); // 自动隐藏功能开关
 
@@ -1688,7 +1687,6 @@ const scheduleAutoHide = (delay?: number) => {
             && isAutoHideEnabled.value
             && isMusicCtlEnabled.value
             && !isPlaying.value) {
-            isAutoHiding = true;
             hideIslandWindow();
         }
     }, delay ?? autoHideDelay.value);
@@ -1745,19 +1743,20 @@ const snapToBottomLeft = async () => {
             // 恢复使用 Tauri 最底层的硬件真实分辨率（绝对不会缩水）
             const monitorHeightPhysical = monitor.size.height;
 
-            // X坐标: 屏幕最左侧 + 10px的边�?
+            // X坐标: 屏幕最左侧 + 10px 边距
             const x = monitorLeftPhysical + (10 * scaleFactor);
-            // Y坐标: 物理最底部 - 窗口高度 - 3px微调
+            // Y坐标: 物理最底部 - 窗口高度 - 3px 微调
             const y = monitorTopPhysical + monitorHeightPhysical - ((WINDOW_INIT_HEIGHT + 3) * scaleFactor);
 
-            // 【终极绝杀核心】：绕过 Windows 系统的任务栏防遮挡机�?
-            // 在强制覆盖任务栏坐标之前，先隐身�?
+            // 任务栏吸附：先 hide 再 setPosition，绕过任务栏防遮挡。
+            // 仅当用户当前确实要显示岛时再 show，避免把“已关闭”状态又强行拉起空窗。
+            const shouldShow = desiredIslandVisible || isIslandVisible.value || userWantsIslandVisible();
             await appWindow.hide();
-
             await appWindow.setPosition(new PhysicalPosition(Math.round(x), Math.round(y)));
-
-            // 移动完成后，瞬间现身，生米煮成熟饭，Windows 也拦不住了！
-            await appWindow.show();
+            if (shouldShow) {
+                await appWindow.show();
+                await appWindow.setAlwaysOnTop(true);
+            }
         }
     } catch (error) {
         console.error('停靠左下角失败', error);
@@ -2189,10 +2188,14 @@ const adjustWindowPosition = async () => {
     } catch (error) {
         console.error('调整窗口位置失败:', error);
     } finally {
-        try {
-            await getCurrentWindow().show();
-        } catch (e) {
-            console.error(e);
+        // 仅定位，不擅自改变显隐意图；只有用户要显示时才 show。
+        if (desiredIslandVisible || isIslandVisible.value || userWantsIslandVisible()) {
+            try {
+                await getCurrentWindow().show();
+                await getCurrentWindow().setAlwaysOnTop(true);
+            } catch (e) {
+                console.error(e);
+            }
         }
     }
 };
@@ -2245,8 +2248,6 @@ const onEnter = (el: Element, done: () => void) => {
 const onLeave = (el: Element, done: () => void) => {
     const HTMLElement = el as HTMLElement;
     const leaveToken = visibilityOperationToken;
-    const leaveWasAutoHiding = isAutoHiding;
-    const leaveWasFullscreen = isHidingForFullscreen;
     cancelVisibilityAnimation();
     HTMLElement.style.transformOrigin = 'center top';
     let start = performance.now();
@@ -2278,14 +2279,8 @@ const onLeave = (el: Element, done: () => void) => {
             done();
             // 仅当前离场操作仍有效时隐藏 OS 窗口；若期间重新开启，旧动画不得覆盖新状态。
             if (leaveToken === visibilityOperationToken && !desiredIslandVisible && !isIslandVisible.value) {
+                // hideIslandWindow 已立即 sync false；此处只收尾 hide OS 窗口
                 getCurrentWindow().hide().catch(console.error);
-                // 只有用户主动关闭时才同步状态到控制台，自动隐藏/全屏隐藏不改变开关
-                if (!leaveWasAutoHiding && !leaveWasFullscreen) {
-                    emit('island-status-sync', { visible: false });
-                }
-                // 只有拥有当前 token 的离场操作可以清理全局隐藏原因，避免旧动画污染新操作。
-                isAutoHiding = false;
-                isHidingForFullscreen = false;
             } else {
                 // 中途被取消的 leave：恢复可见样式，避免残留透明
                 resetIslandVisualStyle(HTMLElement);
@@ -2298,8 +2293,6 @@ const onLeave = (el: Element, done: () => void) => {
 let mouseDownX = 0;
 let mouseDownY = 0;
 let isMouseDown = false;
-// isAutoHiding 已在顶部可见性模块声明
-
 // 自定义横向拖拽相关状态（任务栏模式下仅允许横向移动）
 let isCustomDragging = false;
 let customDragStartScreenX = 0;
@@ -3177,14 +3170,13 @@ onMounted(async () => {
         if (isFullscreen) {
             if (isIslandVisible.value) {
                 wasVisibleBeforeFullscreen = true;
-                isHidingForFullscreen = true;
                 hideIslandWindow();
             }
         } else {
-            if (wasVisibleBeforeFullscreen) {
+            if (wasVisibleBeforeFullscreen && userWantsIslandVisible()) {
                 await showIslandWindow(true);
-                wasVisibleBeforeFullscreen = false;
             }
+            wasVisibleBeforeFullscreen = false;
         }
     });
 
@@ -3366,8 +3358,11 @@ onMounted(async () => {
     // 1) 用户意图 nsd_island_enabled !== 'false'（缺省 true，兼容旧版）
     // 2) 未开静默消息模式
     // 控制台开关与 set_island_visible 是权威入口；此处只做“用户上次想开 + 非静默”的冷启动自显。
+    // 注意：snapToBottomLeft / adjustWindowPosition 可能在上方调用过，但不会再无条件 show。
     if (userWantsIslandVisible() && !isMsgModeEnabled.value) {
         await showIslandWindow();
+        // 不在启动时 scheduleAutoHide：否则音乐控制器+自动隐藏用户会看到“岛一闪就没”
+        // 自动隐藏仅在鼠标离开 / 音乐状态变化等路径触发。
     } else {
         // 明确不显示时确保 OS 窗口隐藏，并按用户意图同步控制台
         void getCurrentWindow().hide().catch(() => {});

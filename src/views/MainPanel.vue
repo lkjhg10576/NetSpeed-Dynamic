@@ -1335,14 +1335,9 @@ onMounted(async () => {
     });
 
     unlistenIslandStatus = await listen<{ visible: boolean }>('island-status-sync', (event) => {
-        // Vue 已 paint / leave 完成的权威回执。关闭请求中若收到 true，忽略旧 show 残留。
-        if (!event.payload.visible) {
-            isWidgetVisible.value = false;
-            return;
-        }
-        if (localStorage.getItem(NSD_ISLAND_ENABLED) !== 'false') {
-            isWidgetVisible.value = true;
-        }
+        // paint 权威回执：控制台开关始终跟随真实显示态。
+        // 自动隐藏也会发 false，这样用户再点开关 = “重新显示”，而不是“关闭”。
+        isWidgetVisible.value = !!event.payload.visible;
     });
 
     // 启动策略：读用户持久意图。缺省 true=兼容旧版“默认开岛”。
@@ -1383,45 +1378,42 @@ onUnmounted(() => {
 });
 
 const toggleWidget = async () => {
+    // 以当前 paint 态取反：自动隐藏后 isWidgetVisible=false，点开关会“重新显示”。
     const nextState = !isWidgetVisible.value;
     localStorage.setItem(NSD_ISLAND_ENABLED, String(nextState));
 
-    // 关闭立即反映；开启仅在后端命令成功后乐观为 true，
-    // 最终以 island-status-sync（Vue paint 完成）为准。绝不因 OS visible 强制 true。
-    if (!nextState) {
-        isWidgetVisible.value = false;
-    }
+    // 关闭立即反映；开启在后端成功后乐观 true，最终以 island-status-sync 为准。
+    isWidgetVisible.value = nextState;
 
     try {
         await invoke<boolean>('set_island_visible', { show: nextState });
-        if (nextState) {
-            // 命令成功 → 先标记意图已接受；若随后 sync false 会回落
-            isWidgetVisible.value = true;
-        }
     } catch (e) {
         console.error('[NSD] set_island_visible failed, fallback emit:', e);
         try {
             await emit('control-island-visibility', { show: nextState });
-            if (nextState) isWidgetVisible.value = true;
         } catch (emitErr) {
             console.error('[NSD] control-island-visibility emit failed:', emitErr);
-            // 失败回滚意图
+            // 失败回滚意图与 UI
             localStorage.setItem(NSD_ISLAND_ENABLED, String(!nextState));
             isWidgetVisible.value = !nextState;
             return;
         }
     }
 
-    // 开启后给 Vue 最多 ~1.5s 完成 paint 并回执；超时不强制 true，只打日志，避免空窗假开启。
+    // 开启后最多等 ~1.5s paint 回执；超时不强制 true，避免空窗假开启。
     if (nextState) {
         const started = Date.now();
         while (Date.now() - started < 1500) {
             await new Promise(r => setTimeout(r, 150));
-            // sync 可能把状态改成 true；若用户又关闭则本地已 false，直接结束
             if (localStorage.getItem(NSD_ISLAND_ENABLED) === 'false') return;
+            // island-status-sync 到 true 则确认；若中途 sync 回 false 保持 false
             if (isWidgetVisible.value) return;
         }
-        console.warn('[NSD] island opened but Vue paint confirm timed out');
+        // 超时仍未确认 paint：回落为关闭，避免“已开启但看不见”
+        if (localStorage.getItem(NSD_ISLAND_ENABLED) === 'true' && !isWidgetVisible.value) {
+            console.warn('[NSD] island opened but Vue paint confirm timed out; fallback UI to closed');
+            isWidgetVisible.value = false;
+        }
     }
 };
 </script>

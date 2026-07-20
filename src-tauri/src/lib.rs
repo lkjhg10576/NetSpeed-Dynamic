@@ -479,7 +479,7 @@ fn apply_widget_dwm_attrs(widget_window: &tauri::WebviewWindow) {
 }
 
 /// 强制把灵动岛 OS 窗口置前显示：
-/// ShowWindow(SW_SHOWNOACTIVATE) + TOPMOST。
+/// ShowWindow(SW_SHOWNOACTIVATE) + TOPMOST + SHOWWINDOW。
 /// 不修改 layered/alpha，不触碰 window-vibrancy。
 #[cfg(target_os = "windows")]
 fn force_widget_os_show(widget_window: &tauri::WebviewWindow) {
@@ -487,8 +487,9 @@ fn force_widget_os_show(widget_window: &tauri::WebviewWindow) {
         unsafe {
             // SW_SHOWNOACTIVATE = 4：显示但不抢焦点
             winapi::um::winuser::ShowWindow(hwnd.0 as _, 4);
-            // HWND_TOPMOST = -1; SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_SHOWWINDOW = 0x0010|0x0002|0x0001|0x0040 = 0x0053
-            // 这里用 0x0013（NOMOVE|NOSIZE|NOACTIVATE）与现有 force_window_topmost 一致（flags 19）
+            // HWND_TOPMOST = -1
+            // flags = SWP_NOMOVE(0x2)|SWP_NOSIZE(0x1)|SWP_NOACTIVATE(0x10)|SWP_SHOWWINDOW(0x40) = 0x53
+            // 必须带 SWP_SHOWWINDOW，否则仅改 Z 序时窗口可能仍是 hidden 状态
             winapi::um::winuser::SetWindowPos(
                 hwnd.0 as _,
                 -1isize as _,
@@ -496,7 +497,7 @@ fn force_widget_os_show(widget_window: &tauri::WebviewWindow) {
                 0,
                 0,
                 0,
-                19,
+                0x0053,
             );
         }
     }
