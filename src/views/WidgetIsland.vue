@@ -599,33 +599,40 @@ watch(rtActivities, (list) => {
 });
 
 // 启动时从 localStorage 读取优先级 map，初始化 activityConfig（与 LiveActive 推送双保险）
+// NSD_ACTIVITY_PRIORITY 现行格式为 { id: number }；兼容旧格式 { id: { enabled, priority } }
+// 显示与否最终由 rtActive 控制，故纯数字/缺项场景下 enabled 默认 true，避免启动时因未打开设置页而漏图标
 function loadActivityConfigFromStorage() {
+    let parsed: Record<string, any> | null = null;
     try {
         const raw = localStorage.getItem(NSD_ACTIVITY_PRIORITY);
         if (raw) {
-            const parsed = JSON.parse(raw);
-            if (parsed && typeof parsed === 'object') {
-                const map: Record<string, { enabled: boolean; priority: number }> = {};
-                for (const id of RT_IDS) {
-                    const entry = (parsed as Record<string, any>)[id];
-                    if (entry && typeof entry === 'object') {
-                        // 兼容两种存储格式：{ enabled, priority } 或纯 number（旧格式）
-                        if (typeof entry.enabled === 'boolean' && typeof entry.priority === 'number') {
-                            map[id] = { enabled: entry.enabled, priority: entry.priority };
-                        } else if (typeof entry === 'number') {
-                            map[id] = { enabled: rtActive.value[id], priority: entry };
-                        }
-                    }
-                }
-                activityConfig.value = map;
-                return;
+            const p = JSON.parse(raw);
+            if (p && typeof p === 'object' && !Array.isArray(p)) {
+                parsed = p as Record<string, any>;
             }
         }
-    } catch (_e) {}
-    // 兜底：默认 priority 按数组序，enabled 用当前活跃状态
+    } catch (_e) {
+        parsed = null;
+    }
+
     const map: Record<string, { enabled: boolean; priority: number }> = {};
     RT_IDS.forEach((id, idx) => {
-        map[id] = { enabled: rtActive.value[id], priority: idx + 1 };
+        const defaultPriority = idx + 1;
+        const entry = parsed ? parsed[id] : undefined;
+        if (typeof entry === 'number' && Number.isFinite(entry)) {
+            // 现行格式：纯数字优先级
+            map[id] = { enabled: true, priority: entry };
+        } else if (entry && typeof entry === 'object') {
+            // 旧格式：{ enabled, priority }；字段缺失时逐项回退
+            const priority = typeof entry.priority === 'number' && Number.isFinite(entry.priority)
+                ? entry.priority
+                : defaultPriority;
+            const enabled = typeof entry.enabled === 'boolean' ? entry.enabled : true;
+            map[id] = { enabled, priority };
+        } else {
+            // 无配置 / 损坏条目：默认优先级，enabled=true（由 rtActive 决定是否真正显示）
+            map[id] = { enabled: true, priority: defaultPriority };
+        }
     });
     activityConfig.value = map;
 }
