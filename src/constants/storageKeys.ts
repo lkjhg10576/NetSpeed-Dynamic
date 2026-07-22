@@ -86,3 +86,6 @@ export const NSD_SYSMSG_VOLUME_ENABLED = 'nsd_sysmsg_volume_enabled';
 export const NSD_SYSMSG_POWER_ENABLED = 'nsd_sysmsg_power_enabled';
 export const NSD_SYSMSG_BATTERY_ENABLED = 'nsd_sysmsg_battery_enabled';
 export const NSD_SYSMSG_UNLOCK_ENABLED = 'nsd_sysmsg_unlock_enabled';
+export const NSD_SYSMSG_NETWORK_LATENCY_ENABLED = 'nsd_sysmsg_network_latency_enabled';
+export const NSD_SYSMSG_NETWORK_DISCONNECT_ENABLED = 'nsd_sysmsg_network_disconnect_enabled';
+export const NSD_SYSMSG_NETWORK_RECOVERY_ENABLED = 'nsd_sysmsg_network_recovery_enabled';

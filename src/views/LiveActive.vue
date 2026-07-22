@@ -395,28 +395,36 @@
 
                             <template v-else-if="item.id === 'sysmsg'">
                                 <div class="sysmsg-config-panel" @click.stop>
-                                    <div class="sysmsg-feature-list">
-                                        <div
-                                            v-for="(feat, idx) in sysmsgFeatures"
-                                            :key="feat.key"
-                                            class="sysmsg-feature-item"
-                                            :class="{ 'is-on': isSysmsgFeatureOn(feat.key), 'is-last': idx === sysmsgFeatures.length - 1 }"
-                                        >
-                                            <div class="sysmsg-feature-left">
-                                                <div class="sysmsg-feature-icon" v-html="feat.icon" aria-hidden="true"></div>
-                                                <div class="sysmsg-feature-text">
-                                                    <span class="sysmsg-feature-title">{{ feat.title }}</span>
-                                                    <span class="sysmsg-feature-desc">{{ feat.desc }}</span>
+                                    <div
+                                        v-for="(group, gIdx) in sysmsgFeatureGroups"
+                                        :key="group.id"
+                                        class="sysmsg-feature-group"
+                                        :class="{ 'is-last-group': gIdx === sysmsgFeatureGroups.length - 1 }"
+                                    >
+                                        <div v-if="group.title" class="sysmsg-feature-group-title">{{ group.title }}</div>
+                                        <div class="sysmsg-feature-list">
+                                            <div
+                                                v-for="(feat, idx) in group.features"
+                                                :key="feat.key"
+                                                class="sysmsg-feature-item"
+                                                :class="{ 'is-on': isSysmsgFeatureOn(feat.key), 'is-last': idx === group.features.length - 1 }"
+                                            >
+                                                <div class="sysmsg-feature-left">
+                                                    <div class="sysmsg-feature-icon" v-html="feat.icon" aria-hidden="true"></div>
+                                                    <div class="sysmsg-feature-text">
+                                                        <span class="sysmsg-feature-title">{{ feat.title }}</span>
+                                                        <span class="sysmsg-feature-desc">{{ feat.desc }}</span>
+                                                    </div>
                                                 </div>
+                                                <label class="custom-switch mini" @click.stop>
+                                                    <input
+                                                        type="checkbox"
+                                                        :checked="isSysmsgFeatureOn(feat.key)"
+                                                        @change="onSysmsgFeatureToggle(feat.key, ($event.target as HTMLInputElement).checked)"
+                                                    >
+                                                    <span class="slider"></span>
+                                                </label>
                                             </div>
-                                            <label class="custom-switch mini" @click.stop>
-                                                <input
-                                                    type="checkbox"
-                                                    :checked="isSysmsgFeatureOn(feat.key)"
-                                                    @change="onSysmsgFeatureToggle(feat.key, ($event.target as HTMLInputElement).checked)"
-                                                >
-                                                <span class="slider"></span>
-                                            </label>
                                         </div>
                                     </div>
                                 </div>
@@ -462,6 +470,9 @@ import {
     NSD_SYSMSG_POWER_ENABLED,
     NSD_SYSMSG_BATTERY_ENABLED,
     NSD_SYSMSG_UNLOCK_ENABLED,
+    NSD_SYSMSG_NETWORK_LATENCY_ENABLED,
+    NSD_SYSMSG_NETWORK_DISCONNECT_ENABLED,
+    NSD_SYSMSG_NETWORK_RECOVERY_ENABLED,
 } from '../constants/storageKeys';
 
 // ===== 三步设置状态 =====
@@ -537,39 +548,86 @@ const sysmsgVolume = ref(loadSysmsgCategory(NSD_SYSMSG_VOLUME_ENABLED));
 const sysmsgPower = ref(loadSysmsgCategory(NSD_SYSMSG_POWER_ENABLED));
 const sysmsgBattery = ref(loadSysmsgCategory(NSD_SYSMSG_BATTERY_ENABLED));
 const sysmsgUnlock = ref(loadSysmsgCategory(NSD_SYSMSG_UNLOCK_ENABLED));
+const sysmsgNetworkLatency = ref(loadSysmsgCategory(NSD_SYSMSG_NETWORK_LATENCY_ENABLED));
+const sysmsgNetworkDisconnect = ref(loadSysmsgCategory(NSD_SYSMSG_NETWORK_DISCONNECT_ENABLED));
+const sysmsgNetworkRecovery = ref(loadSysmsgCategory(NSD_SYSMSG_NETWORK_RECOVERY_ENABLED));
 
-type SysmsgFeatureKey = 'volume' | 'power' | 'battery' | 'unlock';
+type SysmsgFeatureKey =
+    | 'volume'
+    | 'power'
+    | 'battery'
+    | 'unlock'
+    | 'networkLatency'
+    | 'networkDisconnect'
+    | 'networkRecovery';
 
-// 设置面板功能列表：图标 / 名称 / 描述（开关状态由独立 ref 持有）
-const sysmsgFeatures: Array<{
+type SysmsgFeatureItem = {
     key: SysmsgFeatureKey;
     title: string;
     desc: string;
     icon: string;
-}> = [
+};
+
+type SysmsgFeatureGroup = {
+    id: string;
+    title?: string;
+    features: SysmsgFeatureItem[];
+};
+
+// 设置面板功能列表：系统事件 + 网络感知分组（开关状态由独立 ref 持有）
+const sysmsgFeatureGroups: SysmsgFeatureGroup[] = [
     {
-        key: 'volume',
-        title: '音量变化',
-        desc: '调节系统音量时在灵动岛弹出提示',
-        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>',
+        id: 'system',
+        features: [
+            {
+                key: 'volume',
+                title: '音量变化',
+                desc: '调节系统音量时在灵动岛弹出提示',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>',
+            },
+            {
+                key: 'power',
+                title: '电源插拔',
+                desc: '接入或拔出电源时即时通知',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path></svg>',
+            },
+            {
+                key: 'battery',
+                title: '电量提醒',
+                desc: '低电量等电池状态变化时提醒',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect><line x1="22" y1="11" x2="22" y2="13"></line><line x1="6" y1="11" x2="6" y2="13"></line><line x1="10" y1="11" x2="10" y2="13"></line></svg>',
+            },
+            {
+                key: 'unlock',
+                title: '解锁提示',
+                desc: '解锁桌面时显示欢迎类轻提示',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>',
+            },
+        ],
     },
     {
-        key: 'power',
-        title: '电源插拔',
-        desc: '接入或拔出电源时即时通知',
-        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"></path><path d="M18.4 6.6a9 9 0 1 1-12.77.04"></path></svg>',
-    },
-    {
-        key: 'battery',
-        title: '电量提醒',
-        desc: '低电量等电池状态变化时提醒',
-        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2" ry="2"></rect><line x1="22" y1="11" x2="22" y2="13"></line><line x1="6" y1="11" x2="6" y2="13"></line><line x1="10" y1="11" x2="10" y2="13"></line></svg>',
-    },
-    {
-        key: 'unlock',
-        title: '解锁提示',
-        desc: '解锁桌面时显示欢迎类轻提示',
-        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 9.9-1"></path></svg>',
+        id: 'network',
+        title: '网络感知',
+        features: [
+            {
+                key: 'networkLatency',
+                title: '延迟异常提醒',
+                desc: '网络延迟高于 200ms 时通过灵动岛提醒',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>',
+            },
+            {
+                key: 'networkDisconnect',
+                title: '网络断连提醒',
+                desc: '检测到网络连接断开时通过灵动岛提醒',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1l22 22"></path><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"></path><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"></path><path d="M10.71 5.05A16 16 0 0 1 22.58 9"></path><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>',
+            },
+            {
+                key: 'networkRecovery',
+                title: '网络恢复提醒',
+                desc: '网络连接成功恢复时通过灵动岛提醒',
+                icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg>',
+            },
+        ],
     },
 ];
 
@@ -579,6 +637,9 @@ function isSysmsgFeatureOn(key: SysmsgFeatureKey): boolean {
         case 'power': return sysmsgPower.value;
         case 'battery': return sysmsgBattery.value;
         case 'unlock': return sysmsgUnlock.value;
+        case 'networkLatency': return sysmsgNetworkLatency.value;
+        case 'networkDisconnect': return sysmsgNetworkDisconnect.value;
+        case 'networkRecovery': return sysmsgNetworkRecovery.value;
     }
 }
 
@@ -588,6 +649,9 @@ function onSysmsgFeatureToggle(key: SysmsgFeatureKey, on: boolean) {
         case 'power': sysmsgPower.value = on; break;
         case 'battery': sysmsgBattery.value = on; break;
         case 'unlock': sysmsgUnlock.value = on; break;
+        case 'networkLatency': sysmsgNetworkLatency.value = on; break;
+        case 'networkDisconnect': sysmsgNetworkDisconnect.value = on; break;
+        case 'networkRecovery': sysmsgNetworkRecovery.value = on; break;
     }
     applySysmsgConfig();
 }
@@ -697,7 +761,12 @@ function syncHwToWidget() {
 
 // ===== 系统动态感知（sysmsg）：各分类独立开关，总闸 = 任一分类开启 =====
 async function applySysmsgConfig() {
-    const enabled = sysmsgVolume.value || sysmsgPower.value || sysmsgBattery.value || sysmsgUnlock.value;
+    const backendEnabled = sysmsgVolume.value || sysmsgPower.value || sysmsgBattery.value || sysmsgUnlock.value;
+    const enabled =
+        backendEnabled
+        || sysmsgNetworkLatency.value
+        || sysmsgNetworkDisconnect.value
+        || sysmsgNetworkRecovery.value;
     // 同步卡片状态（不再展示卡片总开关，仅作内部一致性）
     const item = activities.value.find(a => a.id === 'sysmsg');
     if (item) item.enabled = enabled;
@@ -707,10 +776,13 @@ async function applySysmsgConfig() {
     localStorage.setItem(NSD_SYSMSG_POWER_ENABLED, String(sysmsgPower.value));
     localStorage.setItem(NSD_SYSMSG_BATTERY_ENABLED, String(sysmsgBattery.value));
     localStorage.setItem(NSD_SYSMSG_UNLOCK_ENABLED, String(sysmsgUnlock.value));
-    // 下发后端过滤（总闸关闭则全部抑制）
+    localStorage.setItem(NSD_SYSMSG_NETWORK_LATENCY_ENABLED, String(sysmsgNetworkLatency.value));
+    localStorage.setItem(NSD_SYSMSG_NETWORK_DISCONNECT_ENABLED, String(sysmsgNetworkDisconnect.value));
+    localStorage.setItem(NSD_SYSMSG_NETWORK_RECOVERY_ENABLED, String(sysmsgNetworkRecovery.value));
+    // 下发后端过滤：仅覆盖现有系统事件；网络提醒由灵动岛本地探测处理
     try {
         await invoke('set_system_event_filter', {
-            enabled,
+            enabled: backendEnabled,
             volume: sysmsgVolume.value,
             power: sysmsgPower.value,
             battery: sysmsgBattery.value,
@@ -719,9 +791,14 @@ async function applySysmsgConfig() {
     } catch (_e) {
         // 命令可能尚不可用，忽略
     }
-    // 跨窗口通知灵动岛：同步动态感知总开关（决定是否弹通知）
+    // 跨窗口通知灵动岛：同步总开关与三类独立网络提醒开关
     try {
-        emit('control-sysmsg-config', { enabled });
+        emit('control-sysmsg-config', {
+            enabled,
+            networkLatency: sysmsgNetworkLatency.value,
+            networkDisconnect: sysmsgNetworkDisconnect.value,
+            networkRecovery: sysmsgNetworkRecovery.value,
+        });
     } catch (_e) {
         // 忽略
     }
@@ -878,7 +955,14 @@ const activities = ref([
         desc: '实时捕捉软硬件生态变化',
         accent: '#ff4757',
         // 总闸改为任一分类开启即为启用（卡片右上角不再显示总开关）
-        enabled: sysmsgVolume.value || sysmsgPower.value || sysmsgBattery.value || sysmsgUnlock.value,
+        enabled:
+            sysmsgVolume.value
+            || sysmsgPower.value
+            || sysmsgBattery.value
+            || sysmsgUnlock.value
+            || sysmsgNetworkLatency.value
+            || sysmsgNetworkDisconnect.value
+            || sysmsgNetworkRecovery.value,
         disable: false,
         priority: 99,
     },
@@ -2476,6 +2560,32 @@ onUnmounted(() => {
     padding: 2px 0 4px;
     width: 100%;
     min-width: 0;
+}
+
+.sysmsg-feature-group {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    min-width: 0;
+}
+
+.sysmsg-feature-group:not(.is-last-group) {
+    margin-bottom: 10px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--control-border, rgba(0, 0, 0, 0.08));
+}
+
+:global(.dark-theme) .sysmsg-feature-group:not(.is-last-group) {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+.sysmsg-feature-group-title {
+    padding: 4px 4px 2px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--item-desc-color, #94a3b8);
+    text-transform: none;
 }
 
 .sysmsg-feature-list {
