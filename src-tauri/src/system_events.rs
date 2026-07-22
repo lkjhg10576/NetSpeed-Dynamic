@@ -597,7 +597,7 @@ pub fn start_network_monitor(app: AppHandle) {
 
 #[cfg(target_os = "windows")]
 fn network_monitor_loop(app: AppHandle) {
-    use windows::Win32::NetworkManagement::NetworkListManager::{
+    use windows::Win32::Networking::NetworkListManager::{
         INetworkListManager, NetworkListManager,
     };
 
