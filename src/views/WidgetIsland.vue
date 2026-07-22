@@ -1344,6 +1344,8 @@ const spectrumBarColor = computed(() => {
 // 封面url
 const coverUrl = ref('');
 const coverCache = new Map<string, string>();
+// 封面请求版本号：清理缓存或切歌时递增，防止过期异步结果回写
+let coverFetchVersion = 0;
 
 // 封面变化时，若处于 album 模式则将当前频谱颜色平滑过渡到新的取色结果
 watch(coverUrl, async (url) => {
@@ -1565,16 +1567,19 @@ const nextTrack = async () => {
     await invoke('control_system_media', { action: 'next' });
 };
 
-// 核心同步函数：塞入到你的 fetchSpeedStats 同一频次的定时器�?
+// 核心同步函数：塞入到你的 fetchSpeedStats 同一频次的定时器
 const syncMusicStatus = async () => {
+    // 捕获本次调用起始版本；清理缓存会递增版本，避免过期封面回写
+    const fetchVersion = coverFetchVersion;
     try {
-        // 1. 调用 Rust 提取网易云标�?[歌名, 歌手, 是否在播放]
+        // 1. 调用 Rust 提取网易云信息 [歌名, 歌手, 是否在播放]
         const res = await invoke<[string, string, boolean] | null>('fetch_netease_music_info');
+        if (fetchVersion !== coverFetchVersion) return;
 
         if (res) {
             const [song, artist, playing] = res;
 
-            // 新增这两行为了展开后的双行显示分别赋�?
+            // 新增这两行为了展开后的双行显示分别赋值
             currentSongName.value = song;
             currentArtistName.value = artist || '未知歌手';
 
@@ -1597,14 +1602,23 @@ const syncMusicStatus = async () => {
                             songName: song,
                             artistName: artist
                         });
+                        // 清理缓存或切歌后，丢弃过期封面结果
+                        if (fetchVersion !== coverFetchVersion
+                            || currentTrackInfo.value !== newTrackInfo) {
+                            return;
+                        }
                         coverUrl.value = realCoverUrl;
-                        // 写入缓存，超限逐条淘汰最旧条目（LRU�?
+                        // 写入缓存，超限逐条淘汰最旧条目（LRU）
                         while (coverCache.size >= 50) {
                             const oldest = coverCache.keys().next().value;
                             if (oldest !== undefined) coverCache.delete(oldest);
                         }
                         coverCache.set(newTrackInfo, realCoverUrl);
                     } catch (coverErr) {
+                        if (fetchVersion !== coverFetchVersion
+                            || currentTrackInfo.value !== newTrackInfo) {
+                            return;
+                        }
                         console.error('所有封面源均获取失败', coverErr);
                         // 使用本地图标或纯色背景，不要再用外部 URL 作为错误兜底
                         coverUrl.value = '';
@@ -1638,8 +1652,19 @@ const syncMusicStatus = async () => {
             }
         }
     } catch (err) {
+        if (fetchVersion !== coverFetchVersion) return;
         console.error('音乐信息获取失败:', err);
     }
+};
+
+// 清理封面缓存并立即为当前歌曲重新拉取封面
+const clearCoverCacheAndRefresh = async () => {
+    coverFetchVersion++;
+    coverCache.clear();
+    coverUrl.value = '';
+    // 重置当前歌曲标识，确保 syncMusicStatus 会重新走封面获取逻辑
+    currentTrackInfo.value = '';
+    await syncMusicStatus();
 };
 
 const showInfo = ref(false);
@@ -2833,6 +2858,15 @@ onMounted(async () => {
         // 切到 album 模式且封面已加载时，立即重新取色
         if (event.payload.mode === 'album' && coverUrl.value) {
             albumDominantColor.value = await extractAlbumColor(coverUrl.value);
+        }
+    });
+
+    // 监听来自控制台的清理封面缓存指令
+    await listen('clear-cover-cache', async () => {
+        try {
+            await clearCoverCacheAndRefresh();
+        } catch (e) {
+            console.error('清理封面缓存失败', e);
         }
     });
 

@@ -210,6 +210,21 @@
                 <span class="slider"></span>
             </label>
         </div>
+
+        <div class="set-item">
+            <div class="set-item-meta">
+                <span class="set-item-title">清理封面缓存</span>
+                <span class="set-item-desc">清除已缓存的专辑封面，当前与后续歌曲将重新获取</span>
+            </div>
+            <button
+                class="action-btn"
+                :class="{ 'is-success': clearCoverCacheStatus === 'done', 'is-error': clearCoverCacheStatus === 'error' }"
+                :disabled="clearCoverCacheStatus === 'loading'"
+                @click="clearCoverCache"
+            >
+                {{ clearCoverCacheLabel }}
+            </button>
+        </div>
     </div>
 </template>
 
@@ -325,6 +340,37 @@ const toggleDestroyOnClose = async () => {
     } catch (e) {
         console.error('同步省内存模式失败', e);
     }
+};
+
+// 清理灵动岛封面内存缓存，并通知灵动岛窗口立即刷新
+const clearCoverCacheStatus = ref<'idle' | 'loading' | 'done' | 'error'>('idle');
+const clearCoverCacheLabel = ref('清理');
+let clearCoverCacheTimer: ReturnType<typeof setTimeout> | null = null;
+
+const clearCoverCache = async () => {
+    if (clearCoverCacheStatus.value === 'loading') return;
+    if (clearCoverCacheTimer) {
+        clearTimeout(clearCoverCacheTimer);
+        clearCoverCacheTimer = null;
+    }
+
+    clearCoverCacheStatus.value = 'loading';
+    clearCoverCacheLabel.value = '清理中…';
+    try {
+        await emit('clear-cover-cache');
+        clearCoverCacheStatus.value = 'done';
+        clearCoverCacheLabel.value = '已清理';
+    } catch (e) {
+        console.error('清理封面缓存失败', e);
+        clearCoverCacheStatus.value = 'error';
+        clearCoverCacheLabel.value = '清理失败';
+    }
+
+    clearCoverCacheTimer = setTimeout(() => {
+        clearCoverCacheStatus.value = 'idle';
+        clearCoverCacheLabel.value = '清理';
+        clearCoverCacheTimer = null;
+    }, 2000);
 };
 
 // 切换灵动岛轮换模式
@@ -741,6 +787,45 @@ input:disabled+.slider {
 .delay-btn:hover {
     background: var(--btn-sec-bg);
     border-color: var(--slider-checked-bg);
+}
+
+.action-btn {
+    min-width: 72px;
+    height: 32px;
+    padding: 0 14px;
+    border: 1px solid var(--control-border);
+    background: var(--control-bg);
+    color: var(--text-body);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.2s ease;
+}
+
+.action-btn:hover:not(:disabled) {
+    background: var(--btn-sec-bg);
+    border-color: var(--slider-checked-bg);
+}
+
+.action-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.action-btn.is-success {
+    color: var(--slider-checked-bg);
+    border-color: var(--slider-checked-bg);
+}
+
+.action-btn.is-error {
+    color: #dd1f1f;
+    border-color: #dd1f1f;
 }
 
 .delay-input {
