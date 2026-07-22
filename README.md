@@ -170,7 +170,7 @@ Music_Dynamic_Island/
 - Node.js >= 18
 - Rust >= 1.70
 - Tauri 2 CLI
-- 当前版本：`0.4.1`（测试版）
+- 当前版本：`0.4.1`（正式版）
 
 ### 安装与运行
 
