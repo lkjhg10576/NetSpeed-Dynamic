@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender};
 use std::sync::Mutex;
 
+use tauri::Emitter;
+
 // 增量游标（进程内持久，跨启停保留，避免重复推送）
 static LAST_NOTIFICATION_ID: AtomicU32 = AtomicU32::new(0);
 
@@ -224,7 +226,7 @@ fn start_listener_thread(rx: Receiver<Ctrl>, ctrl_tx: SyncSender<Ctrl>, app: tau
     // 注册 NotificationChanged：handler 仅「置位 + 唤醒主循环」，不在事件线程做阻塞 WinRT 调用
     let handler = windows::Foundation::TypedEventHandler::<
         UserNotificationListener,
-        windows::UI::Notifications::Management::UserNotificationChangedEventArgs,
+        windows::UI::Notifications::UserNotificationChangedEventArgs,
     >::new(move |_sender, _args| {
         EVENT_CONFIRMED.store(true, Ordering::SeqCst); // 事件真实触发 → 升级为低频安全网
         let _ = ctrl_tx.send(Ctrl::Wake);
