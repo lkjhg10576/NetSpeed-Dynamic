@@ -111,17 +111,8 @@ const draw = () => {
 
     barRects.length = 0;
 
-    // 绘制 X 轴标签（数据点过多时隔间显示）
-    ctx.fillStyle = colors.textColor;
-    ctx.font = '11px -apple-system, sans-serif';
-    ctx.textAlign = 'center';
+    // 布局：每个数据点的占位宽度（X 轴日期标签已移除，悬停 tooltip 会显示具体日期）
     const categoryW = chartW / days.length;
-    const labelStep = days.length > 31 ? Math.ceil(days.length / 12) : 1;
-    for (let i = 0; i < days.length; i++) {
-        if (i % labelStep !== 0 && i !== days.length - 1) continue;
-        const x = padding.left + categoryW * i + categoryW / 2;
-        ctx.fillText(days[i], x, h - padding.bottom + 18);
-    }
 
     // 绘制水平网格线
     const gridLines = 4;
