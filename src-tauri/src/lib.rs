@@ -508,58 +508,38 @@ fn recreate_main_window(app: &tauri::AppHandle) {
     }
 }
 
-/// 导出 CSV 文件：弹出系统原生「另存为」对话框，用户选择路径后写入 CSV 内容。
-/// 返回 Ok(()) 表示保存成功，Err 表示用户取消或写入失败。
+/// 导出 CSV 文件：直接保存到系统「下载」目录，无需弹出任何对话框。
+/// 若同名文件已存在，则自动追加 (1)/(2)… 序号避免覆盖。
+/// 返回 Ok(保存的完整路径) 供前端提示展示，Err 表示获取目录或写入失败。
 #[tauri::command]
-fn save_csv_file(default_name: String, content: String) -> Result<(), String> {
-    use std::os::windows::ffi::OsStrExt;
-    use winapi::um::comdlg32::{GetSaveFileNameW, OPENFILENAMEW};
+fn save_csv_file(app: tauri::AppHandle, default_name: String, content: String) -> Result<String, String> {
+    // 获取系统下载目录（自动跟随用户在系统中设置的实际下载位置）
+    let dir = app
+        .path()
+        .download_dir()
+        .map_err(|e| format!("无法获取下载目录: {}", e))?;
 
-    unsafe {
-        // 构造默认文件名（UTF-16）
-        let wide_name: Vec<u16> = std::ffi::OsStr::new(&default_name)
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
+    // 拆分文件名主干与扩展名，用于同名冲突时插入序号
+    let (stem, ext) = match default_name.rfind('.') {
+        Some(pos) => (&default_name[..pos], &default_name[pos..]),
+        None => (default_name.as_str(), ""),
+    };
 
-        // 文件过滤器：CSV 文件 + 所有文件
-        let filter: Vec<u16> = "CSV 文件\0*.csv\0所有文件\0*.*\0\0"
-            .encode_utf16()
-            .collect();
-
-        // 标题和默认扩展名（需保持生命周期）
-        let title: Vec<u16> = "导出流量统计 CSV\0".encode_utf16().collect();
-        let def_ext: Vec<u16> = "csv\0".encode_utf16().collect();
-
-        // 缓冲区用于接收用户选择的完整路径
-        let mut file_buf: Vec<u16> = vec![0u16; 512];
-        let name_len = wide_name.len().min(file_buf.len());
-        file_buf[..name_len].copy_from_slice(&wide_name[..name_len]);
-
-        let mut ofn: OPENFILENAMEW = std::mem::zeroed();
-        ofn.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
-        ofn.lpstrFilter = filter.as_ptr();
-        ofn.lpstrFile = file_buf.as_mut_ptr();
-        ofn.nMaxFile = file_buf.len() as u32;
-        ofn.lpstrTitle = title.as_ptr();
-        ofn.Flags = 0x00000002 | 0x00000004; // OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY
-        ofn.lpstrDefExt = def_ext.as_ptr();
-
-        if GetSaveFileNameW(&mut ofn) == 0 {
-            return Err("用户取消".to_string());
-        }
-
-        // 从缓冲区提取路径
-        let end = file_buf.iter().position(|&c| c == 0).unwrap_or(file_buf.len());
-        let path = String::from_utf16_lossy(&file_buf[..end]);
-
-        // 写入文件（带 BOM 以便 Excel 正确识别 UTF-8）
-        let bom = "\u{FEFF}";
-        let full_content = format!("{}{}", bom, content);
-        std::fs::write(&path, full_content.as_bytes())
-            .map_err(|e| format!("写入文件失败: {}", e))?;
+    // 计算最终不冲突的路径
+    let mut target = dir.join(&default_name);
+    let mut idx = 1;
+    while target.exists() {
+        target = dir.join(format!("{}({}){}", stem, idx, ext));
+        idx += 1;
     }
-    Ok(())
+
+    // 写入文件（带 UTF-8 BOM，便于 Excel 正确识别中文）
+    let bom = "\u{FEFF}";
+    let full_content = format!("{}{}", bom, content);
+    std::fs::write(&target, full_content.as_bytes())
+        .map_err(|e| format!("写入文件失败: {}", e))?;
+
+    Ok(target.to_string_lossy().to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

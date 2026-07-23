@@ -578,13 +578,12 @@ const handleExportCsv = async () => {
             : exportRange.value === 'lastMonth' ? '上月' : '本年';
         const defaultName = `流量统计_${rangeLabel}_${getLocalYYYYMMDD(new Date())}.csv`;
 
-        await invoke('save_csv_file', { defaultName, content: csvContent });
+        const savedPath = await invoke<string>('save_csv_file', { defaultName, content: csvContent });
         showExportDialog.value = false;
+        // 软件内成功提示（与检查更新同一套弹窗，风格统一）
+        showDialog('导出成功', `已保存到系统下载目录：\n${savedPath}`);
     } catch (e: any) {
-        // 用户取消不提示，其他错误提示
-        if (typeof e === 'string' && e !== '用户取消') {
-            showDialog('导出失败', e);
-        }
+        showDialog('导出失败', typeof e === 'string' ? e : '导出流量统计时出错，请稍后再试。');
     } finally {
         isExporting.value = false;
     }
