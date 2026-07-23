@@ -508,6 +508,60 @@ fn recreate_main_window(app: &tauri::AppHandle) {
     }
 }
 
+/// 导出 CSV 文件：弹出系统原生「另存为」对话框，用户选择路径后写入 CSV 内容。
+/// 返回 Ok(()) 表示保存成功，Err 表示用户取消或写入失败。
+#[tauri::command]
+fn save_csv_file(default_name: String, content: String) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use winapi::um::comdlg32::{GetSaveFileNameW, OPENFILENAMEW};
+
+    unsafe {
+        // 构造默认文件名（UTF-16）
+        let wide_name: Vec<u16> = std::ffi::OsStr::new(&default_name)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        // 文件过滤器：CSV 文件 + 所有文件
+        let filter: Vec<u16> = "CSV 文件\0*.csv\0所有文件\0*.*\0\0"
+            .encode_utf16()
+            .collect();
+
+        // 标题和默认扩展名（需保持生命周期）
+        let title: Vec<u16> = "导出流量统计 CSV\0".encode_utf16().collect();
+        let def_ext: Vec<u16> = "csv\0".encode_utf16().collect();
+
+        // 缓冲区用于接收用户选择的完整路径
+        let mut file_buf: Vec<u16> = vec![0u16; 512];
+        let name_len = wide_name.len().min(file_buf.len());
+        file_buf[..name_len].copy_from_slice(&wide_name[..name_len]);
+
+        let mut ofn: OPENFILENAMEW = std::mem::zeroed();
+        ofn.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+        ofn.lpstrFilter = filter.as_ptr();
+        ofn.lpstrFile = file_buf.as_mut_ptr();
+        ofn.nMaxFile = file_buf.len() as u32;
+        ofn.lpstrTitle = title.as_ptr();
+        ofn.Flags = 0x00000002 | 0x00000004; // OFN_OVERWRITEPROMPT | OFN_HIDEREADONLY
+        ofn.lpstrDefExt = def_ext.as_ptr();
+
+        if GetSaveFileNameW(&mut ofn) == 0 {
+            return Err("用户取消".to_string());
+        }
+
+        // 从缓冲区提取路径
+        let end = file_buf.iter().position(|&c| c == 0).unwrap_or(file_buf.len());
+        let path = String::from_utf16_lossy(&file_buf[..end]);
+
+        // 写入文件（带 BOM 以便 Excel 正确识别 UTF-8）
+        let bom = "\u{FEFF}";
+        let full_content = format!("{}{}", bom, content);
+        std::fs::write(&path, full_content.as_bytes())
+            .map_err(|e| format!("写入文件失败: {}", e))?;
+    }
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -556,6 +610,7 @@ pub fn run() {
             health_reminder::get_health_reminder_state,
             system_events::set_system_event_filter,
             set_network_latency_interval,
+            save_csv_file,
         ])
         .setup(|app| {
             // B8: 注册 AppHandle 到 audio_spectrum 模块，支持 emit 频谱事件

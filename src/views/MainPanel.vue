@@ -204,10 +204,18 @@
                     <div class="card stats-card">
                         <div class="card-header-row">
                             <h3>数据统计</h3>
-                            <select v-model="statChartType" class="theme-select">
-                                <option value="bar">柱状图</option>
-                                <option value="line">折线图</option>
-                            </select>
+                            <div class="stats-controls">
+                                <select v-model="statTimeRange" class="theme-select">
+                                    <option value="week">本周</option>
+                                    <option value="month">本月</option>
+                                    <option value="lastMonth">上月</option>
+                                    <option value="year">本年</option>
+                                </select>
+                                <select v-model="statChartType" class="theme-select">
+                                    <option value="bar">柱状图</option>
+                                    <option value="line">折线图</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="stats-overview">
@@ -236,6 +244,17 @@
                                 :down-data="statsDownData"
                                 :chart-type="statChartType"
                             />
+                        </div>
+
+                        <div class="stats-export-row">
+                            <button class="export-btn" @click="showExportDialog = true">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                    <polyline points="7 10 12 15 17 10" />
+                                    <line x1="12" y1="15" x2="12" y2="3" />
+                                </svg>
+                                导出
+                            </button>
                         </div>
                     </div>
                 </template>
@@ -294,6 +313,30 @@
                     <div class="modal-footer">
                         <button v-if="dialog.isConfirm" class="btn btn-secondary" @click="closeDialog">取消</button>
                         <button class="btn btn-primary" @click="handleDialogConfirm">确定</button>
+                    </div>
+                </div>
+            </div>
+        </Transition>
+
+        <!-- 导出 CSV 弹窗 -->
+        <Transition name="fade">
+            <div v-if="showExportDialog" class="modal-overlay" @click.self="showExportDialog = false">
+                <div class="modal-card">
+                    <div class="modal-header">
+                        <h4>导出流量统计</h4>
+                    </div>
+                    <div class="modal-body">
+                        <p>选择要导出的时间范围：</p>
+                        <div class="export-range-options">
+                            <div class="export-range-item" :class="{ active: exportRange === 'week' }" @click="exportRange = 'week'">本周</div>
+                            <div class="export-range-item" :class="{ active: exportRange === 'month' }" @click="exportRange = 'month'">本月</div>
+                            <div class="export-range-item" :class="{ active: exportRange === 'lastMonth' }" @click="exportRange = 'lastMonth'">上月</div>
+                            <div class="export-range-item" :class="{ active: exportRange === 'year' }" @click="exportRange = 'year'">本年</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" @click="showExportDialog = false">取消</button>
+                        <button class="btn btn-primary" @click="handleExportCsv" :disabled="isExporting">{{ isExporting ? '导出中...' : '导出' }}</button>
                     </div>
                 </div>
             </div>
@@ -387,7 +430,13 @@ watch(currentView, async (newVal) => {
 
 const rightPanel = ref<'settings' | 'stats'>('settings');
 const statChartType = ref<'bar' | 'line'>('bar');
+const statTimeRange = ref<'week' | 'month' | 'lastMonth' | 'year'>('week');
 const statsChartRef = ref<InstanceType<typeof StatsChart> | null>(null);
+
+// 导出弹窗状态
+const showExportDialog = ref(false);
+const exportRange = ref<'week' | 'month' | 'lastMonth' | 'year'>('week');
+const isExporting = ref(false);
 
 const trafficData = ref<Record<string, { up: number; down: number }>>({});
 let saveThrottleCounter = 0;
@@ -417,39 +466,64 @@ const monthTraffic = computed(() => {
         .reduce((acc, [, data]) => acc + data.up + data.down, 0);
 });
 
+// 根据时间范围获取日期列表（YYYY-MM-DD 格式）
+const getDateRangeDates = (range: 'week' | 'month' | 'lastMonth' | 'year'): string[] => {
+    const dates: string[] = [];
+    const now = new Date();
+
+    if (range === 'week') {
+        // 本周：从周一到今天
+        const day = now.getDay(); // 0=周日, 1=周一...
+        const mondayOffset = day === 0 ? 6 : day - 1;
+        const monday = new Date(now);
+        monday.setDate(now.getDate() - mondayOffset);
+        for (let d = new Date(monday); d <= now; d.setDate(d.getDate() + 1)) {
+            dates.push(getLocalYYYYMMDD(d));
+        }
+    } else if (range === 'month') {
+        // 本月：从 1 号到今天
+        const first = new Date(now.getFullYear(), now.getMonth(), 1);
+        for (let d = new Date(first); d <= now; d.setDate(d.getDate() + 1)) {
+            dates.push(getLocalYYYYMMDD(d));
+        }
+    } else if (range === 'lastMonth') {
+        // 上月：上个月的所有天数
+        const lastMonthFirst = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const lastMonthLast = new Date(now.getFullYear(), now.getMonth(), 0);
+        for (let d = new Date(lastMonthFirst); d <= lastMonthLast; d.setDate(d.getDate() + 1)) {
+            dates.push(getLocalYYYYMMDD(d));
+        }
+    } else {
+        // 本年：从 1月1日 到今天
+        const first = new Date(now.getFullYear(), 0, 1);
+        for (let d = new Date(first); d <= now; d.setDate(d.getDate() + 1)) {
+            dates.push(getLocalYYYYMMDD(d));
+        }
+    }
+    return dates;
+};
+
 // 统计图表数据
 const statsDays = computed(() => {
-    const days: string[] = [];
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        days.push(getLocalYYYYMMDD(d).slice(5));
-    }
-    return days;
+    const dates = getDateRangeDates(statTimeRange.value);
+    // 图表标签：本周/本月显示 MM-DD，本年显示 MM-DD
+    return dates.map(d => d.slice(5));
 });
 
 const statsUpData = computed(() => {
-    const data: number[] = [];
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = getLocalYYYYMMDD(d);
+    const dates = getDateRangeDates(statTimeRange.value);
+    return dates.map(dateStr => {
         const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
-        data.push(Number((dayData.up / (1024 * 1024)).toFixed(2)));
-    }
-    return data;
+        return Number((dayData.up / (1024 * 1024)).toFixed(2));
+    });
 });
 
 const statsDownData = computed(() => {
-    const data: number[] = [];
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date();
-        d.setDate(d.getDate() - i);
-        const dateStr = getLocalYYYYMMDD(d);
+    const dates = getDateRangeDates(statTimeRange.value);
+    return dates.map(dateStr => {
         const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
-        data.push(Number((dayData.down / (1024 * 1024)).toFixed(2)));
-    }
-    return data;
+        return Number((dayData.down / (1024 * 1024)).toFixed(2));
+    });
 });
 
 // 获取本地日期格式为 YYYY-MM-DD
@@ -480,6 +554,40 @@ const toggleRightPanel = async () => {
     // 侧边栏布局变化会挤压左侧卡片，强制让实时走势图重新计算高宽
     await nextTick();
     speedChartRef.value?.resize();
+};
+
+// 导出 CSV
+const handleExportCsv = async () => {
+    isExporting.value = true;
+    try {
+        const dates = getDateRangeDates(exportRange.value);
+        // 构建 CSV 内容：表头 + 每日数据
+        const header = '日期,上行流量,下行流量,合计流量';
+        const rows = dates.map(dateStr => {
+            const dayData = trafficData.value[dateStr] || { up: 0, down: 0 };
+            const upMB = (dayData.up / (1024 * 1024)).toFixed(2);
+            const downMB = (dayData.down / (1024 * 1024)).toFixed(2);
+            const totalMB = ((dayData.up + dayData.down) / (1024 * 1024)).toFixed(2);
+            return `${dateStr},${upMB} MB,${downMB} MB,${totalMB} MB`;
+        });
+        const csvContent = [header, ...rows].join('\r\n');
+
+        // 生成默认文件名
+        const rangeLabel = exportRange.value === 'week' ? '本周'
+            : exportRange.value === 'month' ? '本月'
+            : exportRange.value === 'lastMonth' ? '上月' : '本年';
+        const defaultName = `流量统计_${rangeLabel}_${getLocalYYYYMMDD(new Date())}.csv`;
+
+        await invoke('save_csv_file', { defaultName, content: csvContent });
+        showExportDialog.value = false;
+    } catch (e: any) {
+        // 用户取消不提示，其他错误提示
+        if (typeof e === 'string' && e !== '用户取消') {
+            showDialog('导出失败', e);
+        }
+    } finally {
+        isExporting.value = false;
+    }
 };
 
 const toggleAutoStart = async () => {
@@ -1897,6 +2005,73 @@ input:checked+.slider:before {
     min-height: 180px;
     border-top: 1px solid var(--chart-border);
     padding-top: 16px;
+}
+
+.stats-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.stats-export-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 12px;
+}
+
+.export-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    color: var(--item-title-color);
+    border: 1px solid var(--chart-border);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.export-btn svg {
+    width: 14px;
+    height: 14px;
+}
+
+.export-btn:hover {
+    background: var(--btn-sec-bg);
+    border-color: var(--slider-checked-bg);
+}
+
+.export-range-options {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.export-range-item {
+    padding: 10px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    border-radius: 10px;
+    border: 1px solid var(--card-border);
+    background: var(--control-bg);
+    color: var(--text-body);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.export-range-item:hover {
+    border-color: var(--slider-checked-bg);
+}
+
+.export-range-item.active {
+    background: var(--btn-pri-bg);
+    color: var(--btn-pri-color);
+    border-color: var(--btn-pri-border);
 }
 
 
