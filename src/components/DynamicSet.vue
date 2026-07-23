@@ -111,6 +111,16 @@
             </label>
         </div>
 
+        <div class="set-item warn-set-item" v-if="notifAccessDenied">
+            <div class="warn-bar">
+                <span class="warn-text">未授予「通知访问」权限，系统通知将无法接收。请在 Windows 设置中开启。</span>
+                <div class="warn-actions">
+                    <button class="warn-btn" @click="openNotifSettings">打开系统设置</button>
+                    <button class="warn-btn ghost" @click="recheckNotifAccess">重试</button>
+                </div>
+            </div>
+        </div>
+
         <div class="set-item" :class="{ 'disabled-set-item': enableRotation }">
             <div class="set-item-meta">
                 <span class="set-item-title">静默消息模式</span>
@@ -267,6 +277,10 @@ const enableMusicCtrl = ref(localStorage.getItem(NSD_MUSIC_CTRL) === 'true');
 const spectrumColorMode = ref(localStorage.getItem(NSD_SPECTRUM_COLOR_MODE) || 'album');
 const spectrumCustomColor = ref(localStorage.getItem(NSD_SPECTRUM_CUSTOM_COLOR) || '#b6e0ee');
 const enableMsgNotify = ref(localStorage.getItem(NSD_MSG_NOTIFY) === 'true');
+
+// 通知访问权限未授予时的警示条（'ok' 时隐藏）
+type AccessStatus = 'ok' | 'denied' | 'unavailable';
+const notifAccessDenied = ref(false);
 const msgModeEnabled = ref(localStorage.getItem(NSD_MSG_MODE) === 'true');
 const enableRotation = ref(localStorage.getItem(NSD_ROTATION_MODE) === 'true');
 
@@ -290,9 +304,36 @@ const toggleMsgMode = async () => {
     await emit('control-msg-mode', { enabled: msgModeEnabled.value });
 };
 
-// 新增切换保存方法
-const toggleMsgNotify = () => {
+// 新增切换保存方法（同步启停后端监听 + 权限检测）
+const toggleMsgNotify = async () => {
     localStorage.setItem(NSD_MSG_NOTIFY, String(enableMsgNotify.value));
+    // 同步启停后端事件监听
+    invoke('set_notification_listening', { enabled: enableMsgNotify.value }).catch(() => {});
+
+    if (enableMsgNotify.value) {
+        // 打开时检测权限
+        try {
+            const st = await invoke<AccessStatus>('check_notification_access');
+            notifAccessDenied.value = (st === 'denied' || st === 'unavailable');
+        } catch {
+            notifAccessDenied.value = false;
+        }
+    } else {
+        notifAccessDenied.value = false;
+    }
+};
+
+// 打开 Windows 通知设置（引导用户开启「通知访问」权限）
+const openNotifSettings = () => invoke('open_notification_settings').catch(() => {});
+
+// 重试权限检测
+const recheckNotifAccess = async () => {
+    try {
+        const st = await invoke<AccessStatus>('check_notification_access');
+        notifAccessDenied.value = (st === 'denied' || st === 'unavailable');
+    } catch {
+        /* ignore */
+    }
 };
 
 // 切换自动隐藏设置
@@ -855,5 +896,48 @@ input:disabled+.slider {
 
 .delay-input[type=number] {
     -moz-appearance: textfield;
+}
+
+/* 通知访问权限警示条 */
+.warn-set-item {
+    padding: 0 2px;
+}
+.warn-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(255, 159, 64, 0.14);
+    border: 1px solid rgba(255, 159, 64, 0.5);
+}
+.warn-text {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--item-desc-color);
+}
+.warn-actions {
+    display: flex;
+    gap: 8px;
+}
+.warn-btn {
+    flex: 1;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: #fff;
+    background: linear-gradient(135deg, #ff9f40, #ff7a45);
+    transition: filter 0.18s ease;
+}
+.warn-btn:hover {
+    filter: brightness(1.06);
+}
+.warn-btn.ghost {
+    color: var(--item-desc-color);
+    background: transparent;
+    border: 1px solid var(--slider-bg);
 }
 </style>
