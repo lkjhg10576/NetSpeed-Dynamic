@@ -32,7 +32,7 @@
                             </div>
                         </div>
 
-                        <div v-else-if="displaySysToast" class="system-toast-box" key="systoast">
+                        <div v-else-if="displaySysToast" class="system-toast-box" key="systoast" @click="onSysToastClick">
 
                             <div v-if="sysToastType === 'app'" class="toast-icon app-icon">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -748,9 +748,21 @@ const msgAppName = ref('');
 const msgBody = ref('');
 const msgAumid = ref('');
 
+// 消息通知队列（替代原 5s 轮询）：后端增量推送多条时逐条展示
+interface ToastItem {
+    id: number;
+    app_name: string;
+    title: string;
+    body: string;
+    aumid: string;
+}
+type AccessStatus = 'ok' | 'denied' | 'unavailable';
+const msgQueue = ref<ToastItem[]>([]);
+let isProcessingMsg = false;
+
 // 系统操作通知专用变量
 // volume：可合并续期的音量 toast；其它类型走普通队列
-type SysToastType = 'app' | 'sys' | 'volume' | 'battery-charge' | 'battery-low' | 'lock' | 'unlock';
+type SysToastType = 'app' | 'sys' | 'volume' | 'battery-charge' | 'battery-low' | 'lock' | 'unlock' | 'notify-permission';
 interface SysToastItem {
     text: string;
     type: SysToastType;
@@ -881,7 +893,7 @@ const processToastQueue = async () => {
         sysToastText.value = nextToast.text;
         sysToastType.value = nextToast.type;
         displaySysToast.value = true;
-        toastDeadlineAt = Date.now() + TOAST_DWELL_MS;
+        toastDeadlineAt = Date.now() + (nextToast.type === 'notify-permission' ? 6000 : TOAST_DWELL_MS);
         applySysToastIslandSize(nextToast.text, nextToast.type);
 
         // 自动恢复显示：当有系统通知时，如果灵动岛被隐藏，则自动恢复显示
@@ -926,6 +938,57 @@ const processToastQueue = async () => {
     processToastQueue(); // 递归检查是否还有下一个通知
 };
 
+// 消息通知队列处理（与 sysmsg 共用 toastWaitToken / sleepMs；二者互斥：消息优先级最高）
+const processMsgQueue = async () => {
+    if (isProcessingMsg || msgQueue.value.length === 0) return;
+    // 系统 toast 进行中：消息挂起等待（与 processToastQueue 对称）
+    if (displaySysToast.value) return;
+    // 当前已有消息显示：等待其结束（watch(isMsgActive) 会再触发）
+    if (isMsgActive.value) return;
+
+    isProcessingMsg = true;
+    const item = msgQueue.value.shift();
+
+    if (item) {
+        const token = ++toastWaitToken;
+        msgAumid.value = item.aumid;
+        msgTitle.value = (item.title && item.title !== item.app_name) ? item.title : '新通知';
+        msgAppName.value = item.app_name;
+        msgBody.value = item.body || (item.title === item.app_name ? '收到一条新通知' : item.title);
+        currentMsgIcon.value = getAppIcon(item.app_name);
+
+        if (!isMsgActive.value) {
+            isMsgActive.value = true;
+            if (!isIslandVisible.value) {
+                getCurrentWindow().show();
+                isIslandVisible.value = true;
+            }
+            if (!isPinnedToTaskbar.value) {
+                animateIslandSize(msgExpandedWidth.value, 65);
+            }
+        }
+
+        // 有积压时每条缩短到 3s；仅剩 1 条显示 5s（用户决策）
+        const dwell = msgQueue.value.length > 0 ? 3000 : 5000;
+        await sleepMs(dwell, token);
+
+        if (token !== toastWaitToken) {
+            isProcessingMsg = false;
+            return; // 被新消息/系统 toast 打断
+        }
+
+        isMsgActive.value = false;
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+        scheduleAutoHide();
+    }
+
+    isProcessingMsg = false;
+    processMsgQueue(); // 递归处理下一条
+};
+
 // 监听系统通知显示状态：动态宽度 + 结束后恢复用户岛宽
 watch(displaySysToast, (newVal) => {
     if (newVal) {
@@ -939,6 +1002,8 @@ watch(displaySysToast, (newVal) => {
             const savedWidth = restoreIslandWidth();
             const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
             animateIslandSize(targetWidth, h);
+            // 系统 toast 结束后唤醒可能排队的消息通知
+            processMsgQueue();
         }
     }
 });
@@ -948,6 +1013,13 @@ watch(sysToastText, (text) => {
     if (!displaySysToast.value) return;
     applySysToastIslandSize(text, sysToastType.value);
 });
+
+// 点击系统 toast：notify-permission 类型跳转到 Windows 通知设置
+const onSysToastClick = () => {
+    if (sysToastType.value === 'notify-permission') {
+        invoke('open_notification_settings').catch(() => {});
+    }
+};
 
 // 暴露给外部调用的触发函数
 const showToast = (text: string, type: SysToastType = 'app') => {
@@ -1017,6 +1089,7 @@ watch(isMsgActive, (newVal) => {
         return;
     }
     processToastQueue();
+    processMsgQueue(); // 消息结束后接上下一条排队消息
 });
 
 // 记录音乐岛是否处于展开状�?
@@ -1914,7 +1987,6 @@ watch([currentTrackInfo, displayMusic, isMusicExpanded], async () => {
 
 let musicTimer: number;
 let msgTimer: number | null = null;
-let notifyTimer: number;
 
 // 网络状态灯由后端 network-status 事件驱动（见 onMounted 中的 listen）
 
@@ -3181,57 +3253,6 @@ onMounted(async () => {
     }, 3000);
 
 
-    // 3. 低频定时器：专门轮询系统通知（通知不需要抢时间，5秒换来极低的资源占用）
-    notifyTimer = setInterval(async () => {
-        const enabled = localStorage.getItem(NSD_MSG_NOTIFY) === 'true';
-        if (!enabled) return;
-
-        try {
-            const res = await invoke<any>('fetch_latest_notification');
-            if (res) {
-                msgAumid.value = res.aumid;
-
-                // 标题只存发送者（如果没有单独标题就显�?'新通知'�?
-                msgTitle.value = (res.title && res.title !== res.app_name) ? res.title : '新通知';
-                // 单独把程序名存起�?
-                msgAppName.value = res.app_name;
-                // 内容兜底逻辑保持不变
-                msgBody.value = res.body || (res.title === res.app_name ? '收到一条新通知' : res.title);
-
-                currentMsgIcon.value = getAppIcon(res.app_name);
-
-                if (!isMsgActive.value) {
-                    isMsgActive.value = true;
-                    // 自动恢复显示：当有消息活动时，如果灵动岛被隐藏，则自动恢复显�?
-                    if (!isIslandVisible.value) {
-                        getCurrentWindow().show();
-                        isIslandVisible.value = true;
-                    }
-                    if (isMsgModeEnabled.value && !isIslandVisible.value) {
-                        getCurrentWindow().show();
-                        isIslandVisible.value = true;
-                    }
-                    if (!isPinnedToTaskbar.value) {
-                        animateIslandSize(msgExpandedWidth.value, 65);
-                    }
-                }
-
-                if (msgTimer) clearTimeout(msgTimer);
-                msgTimer = setTimeout(() => {
-                    isMsgActive.value = false;
-                    const { h } = getBaseSize();
-                    const savedWidth = restoreIslandWidth();
-                    const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
-                    animateIslandSize(targetWidth, h);
-                    // 消息通知结束后重新评估自动隐藏
-                    // scheduleAutoHide 内部会校验：自动隐藏开关 + 音乐控制器模式 + 无音乐播放
-                    scheduleAutoHide();
-                }, 5000);
-            }
-        } catch (err) {
-            console.error(err);
-        }
-    }, 5000);
 
     // 监听控制台发来的显隐调度指令
     await listen<{ show: boolean }>('control-island-visibility', async (event) => {
@@ -3260,6 +3281,29 @@ onMounted(async () => {
     await listen<number[]>("spectrum-data", (event) => {
         spectrumData.value = event.payload;
     });
+
+    // 消息通知增量事件（替代 5s 轮询）：后端监听线程主动推送，前端入队逐条展示
+    await listen<{ items: ToastItem[] }>('notification-event', (e) => {
+        for (const it of e.payload.items) msgQueue.value.push(it);
+        processMsgQueue();
+    });
+
+    // 权限状态：denied/unavailable 时弹灵动岛 toast 提示（可点击跳设置）
+    await listen<AccessStatus>('notification-status', (e) => {
+        if (e.payload === 'denied' || e.payload === 'unavailable') {
+            showToast(
+                e.payload === 'unavailable'
+                    ? '系统通知不可用，请在 Windows 设置中开启通知访问'
+                    : '未授予通知访问权限，点击前往系统设置开启',
+                'notify-permission'
+            );
+        }
+    });
+
+    // 启动即触发后端监听（若用户开启了消息通知），由后端状态机负责增量推送 + 轮询兜底
+    if (localStorage.getItem(NSD_MSG_NOTIFY) === 'true') {
+        invoke('set_notification_listening', { enabled: true }).catch(() => {});
+    }
 
     // 初始化时触发一次计�?
     setTimeout(() => {
@@ -3305,7 +3349,6 @@ onUnmounted(() => {
     stopRotation();
     stopHwRotation();
     clearInterval(musicTimer);
-    clearInterval(notifyTimer);
     stopProgressTimer();
     // 使进行中的 toast 等待立即失效，避免卸载后继续改状态
     toastWaitToken++;
