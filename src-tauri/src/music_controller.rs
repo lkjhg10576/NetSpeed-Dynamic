@@ -14,6 +14,30 @@ use windows::Media::Control::{
 // 全局记录当前选中的平台（默认空，由前端传来）
 static TARGET_PLAYER: Mutex<String> = Mutex::new(String::new());
 
+// 缓存 SMTC SessionManager：RequestAsync 是较重的 WinRT 异步，fetchTimeline(1Hz)/syncMusicStatus(0.33Hz)
+// 每次都重建会累积 COM 对象分配开销。首次请求后复用同一实例；GetSessions 每次仍返回最新会话列表，
+// 无需重复 RequestAsync。SessionManager 为系统级单例，长期有效。
+static SESSION_MANAGER: Lazy<Mutex<Option<GlobalSystemMediaTransportControlsSessionManager>>> =
+    Lazy::new(|| Mutex::new(None));
+
+/// 获取（必要时创建并缓存）SMTC SessionManager。缓存命中时零 WinRT 异步调用。
+fn get_cached_session_manager() -> Option<GlobalSystemMediaTransportControlsSessionManager> {
+    {
+        let guard = SESSION_MANAGER.lock().ok()?;
+        if let Some(m) = guard.as_ref() {
+            return Some(m.clone());
+        }
+    }
+    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
+        .ok()?
+        .get()
+        .ok()?;
+    if let Ok(mut guard) = SESSION_MANAGER.lock() {
+        *guard = Some(manager.clone());
+    }
+    Some(manager)
+}
+
 // 全局 HTTP 客户端单例，避免每次切歌都创建新的
 static HTTP_CLIENT: Lazy<Client> = Lazy::new(|| {
     Client::builder()
@@ -32,8 +56,10 @@ pub fn set_target_player(player: String) {
 
 // 自动匹配你选择的软件
 fn get_target_media_session() -> Option<GlobalSystemMediaTransportControlsSession> {
-    let manager = GlobalSystemMediaTransportControlsSessionManager::RequestAsync()
-        .ok()?.get().ok()?;
+    let manager = match get_cached_session_manager() {
+        Some(m) => m,
+        None => return None,
+    };
     
     let sessions = manager.GetSessions().ok()?;
 

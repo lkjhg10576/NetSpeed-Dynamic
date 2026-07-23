@@ -35,7 +35,7 @@ fn emit_spectrum(data: &[f32; 5]) {
         guard.clone()
     };
     if let Some(handle) = handle {
-        let _ = handle.emit("spectrum-data", &data.to_vec());
+        let _ = handle.emit("spectrum-data", data);
     }
 }
 
@@ -221,13 +221,13 @@ fn process_data(data: &[f32], channels: u16) {
                 spec[i] = spec[i] * 0.6 + final_spectrum[i] * 0.4;
             }
             // B8: FFT 处理后通过 Tauri emit 推送，替代前端 setInterval 轮询
-            // B9: 节流 — 每 50ms 最多 emit 一次（20fps 足够频谱动画），减少 76% WebSocket 消息
+            // B9: 节流 — 每 66ms 最多 emit 一次（~15fps 足够频谱动画），减少 IPC 次数与堆分配
             let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0);
             let prev_ms = LAST_EMIT_MS.load(Ordering::Relaxed);
-            if now_ms.wrapping_sub(prev_ms) >= 50 {
+            if now_ms.wrapping_sub(prev_ms) >= 66 {
                 LAST_EMIT_MS.store(now_ms, Ordering::Relaxed);
                 emit_spectrum(&spec);
             }

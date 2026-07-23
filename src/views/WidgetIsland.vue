@@ -375,7 +375,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, type CSSProperties } from 'vue';
+import { ref, shallowRef, triggerRef, onMounted, onUnmounted, computed, watch, nextTick, type CSSProperties } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow, currentMonitor, PhysicalPosition, LogicalPosition, PhysicalSize } from '@tauri-apps/api/window'; import { Menu, MenuItem } from '@tauri-apps/api/menu';
 import { listen, emit } from '@tauri-apps/api/event';
@@ -1285,7 +1285,7 @@ const isPlaying = ref(false);
 const isGlowBorderEnabled = ref(localStorage.getItem(NSD_GLOW_BORDER) === 'true');
 
 // 律动频谱
-const spectrumData = ref([0.35, 0.35, 0.35, 0.35, 0.35]);
+const spectrumData = shallowRef([0.35, 0.35, 0.35, 0.35, 0.35]);
 
 // 频谱颜色模式：'album'(跟随专辑) | 'theme'(跟随主题) | 'custom'(自定义)
 const spectrumColorMode = ref(localStorage.getItem(NSD_SPECTRUM_COLOR_MODE) || 'album');
@@ -1844,7 +1844,7 @@ const startProgressTimer = () => {
     progressTimer = setInterval(fetchTimeline, 1000) as unknown as number;
     progressClockTimer = setInterval(() => {
         timelineClock.value = Date.now();
-    }, 100) as unknown as number;
+    }, 250) as unknown as number;
 };
 
 const stopProgressTimer = () => {
@@ -2769,6 +2769,9 @@ const getAppIcon = (appName: string) => {
     return defaultLogo;
 };
 
+// 统一保存 Tauri listen 返回的 unlisten 函数，组件卸载时清理，防止事件订阅残留
+const unlistenFns: Array<() => void> = [];
+
 onMounted(async () => {
     // 启动时应用个性化缩放与置顶
     applyAppScale(appScale.value);
@@ -3194,7 +3197,7 @@ onMounted(async () => {
     });
 
     // 监听来自 LiveActive 的实时活动配置（多活动并行轮换：enabled + priority）
-    await listen<Record<string, { enabled: boolean; priority: number }>>('control-activity-config', (event) => {
+    unlistenFns.push(await listen<Record<string, { enabled: boolean; priority: number }>>('control-activity-config', (event) => {
         const p = event.payload || {};
         // 合并到 activityConfig（事件优先，缺失的 id 保留原值）
         const merged: Record<string, { enabled: boolean; priority: number }> = { ...activityConfig.value };
@@ -3205,10 +3208,10 @@ onMounted(async () => {
             }
         }
         activityConfig.value = merged;
-    });
+    }));
 
     // 监听后端推送的 monitor-stats 事件（硬件 + 网速统一）
-    await listen<any>('monitor-stats', (event) => {
+    unlistenFns.push(await listen<any>('monitor-stats', (event) => {
         const p = event.payload;
         if (typeof p.cpu_pct === 'number') hwCpuPct.value = p.cpu_pct;
         if (typeof p.mem_pct === 'number') hwMemPct.value = p.mem_pct;
@@ -3227,7 +3230,7 @@ onMounted(async () => {
             isHighDownload.value = highDown;
             isHighUpload.value = highUp;
         }
-    });
+    }));
 
     // 启动网速显示轮换定时器（每 5 秒切换上传/下载）
     speedCycleTimer = window.setInterval(() => {
@@ -3255,7 +3258,7 @@ onMounted(async () => {
 
 
     // 监听控制台发来的显隐调度指令
-    await listen<{ show: boolean }>('control-island-visibility', async (event) => {
+    unlistenFns.push(await listen<{ show: boolean }>('control-island-visibility', async (event) => {
         if (event.payload.show) {
             // 1. 先让透明�?OS 窗口容器显示，此时内�?DOM �?v-show="false"，视觉上仍是隐形�?
             await getCurrentWindow().show();
@@ -3268,28 +3271,33 @@ onMounted(async () => {
             // 控制台关闭指�?-> 触发常规离开动画
             isIslandVisible.value = false;
         }
-    });
+    }));
 
     // 实时监听来自 Rust 底层发来的清透像素流，无缝同步给 Vue 的响应式 DOM 宽高
-    await listen<number[]>("island-resize", (event) => {
+    unlistenFns.push(await listen<number[]>("island-resize", (event) => {
         const [w, h] = event.payload;
         currentWidth.value = w;
         currentHeight.value = h;
-    });
+    }));
 
     // B8: 监听后端推来的频谱数据（替代 50ms setInterval 轮询，显著减�?IPC 调用次数�?
-    await listen<number[]>("spectrum-data", (event) => {
-        spectrumData.value = event.payload;
-    });
+    unlistenFns.push(await listen<number[]>("spectrum-data", (event) => {
+        const p = event.payload;
+        const arr = spectrumData.value;
+        if (p && p.length === 5) {
+            arr[0] = p[0]; arr[1] = p[1]; arr[2] = p[2]; arr[3] = p[3]; arr[4] = p[4];
+            triggerRef(spectrumData);
+        }
+    }));
 
     // 消息通知增量事件（替代 5s 轮询）：后端监听线程主动推送，前端入队逐条展示
-    await listen<{ items: ToastItem[] }>('notification-event', (e) => {
+    unlistenFns.push(await listen<{ items: ToastItem[] }>('notification-event', (e) => {
         for (const it of e.payload.items) msgQueue.value.push(it);
         processMsgQueue();
-    });
+    }));
 
     // 权限状态：denied/unavailable 时弹灵动岛 toast 提示（可点击跳设置）
-    await listen<AccessStatus>('notification-status', (e) => {
+    unlistenFns.push(await listen<AccessStatus>('notification-status', (e) => {
         if (e.payload === 'denied' || e.payload === 'unavailable') {
             showToast(
                 e.payload === 'unavailable'
@@ -3298,7 +3306,7 @@ onMounted(async () => {
                 'notify-permission'
             );
         }
-    });
+    }));
 
     // 启动即触发后端监听（若用户开启了消息通知），由后端状态机负责增量推送 + 轮询兜底
     if (localStorage.getItem(NSD_MSG_NOTIFY) === 'true') {
@@ -3358,6 +3366,11 @@ onUnmounted(() => {
     // 组件卸载时关闭频谱捕获，避免后端空跑
     invoke('set_spectrum_active', { active: false }).catch(() => {});
     if (speedCycleTimer) clearInterval(speedCycleTimer);
+    // 清理所有 Tauri 事件订阅，防止卸载后残留监听器累积
+    unlistenFns.forEach(fn => { try { fn(); } catch (_) {} });
+    unlistenFns.length = 0;
+    // 释放封面缓存
+    coverCache.clear();
 });
 </script>
 
