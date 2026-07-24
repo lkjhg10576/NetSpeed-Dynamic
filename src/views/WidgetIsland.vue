@@ -316,6 +316,36 @@
                         </div>
                     </div>
 
+                    <div v-else-if="isPrintQueueExpanded" class="print-queue-detail" key="print-queue">
+                        <div class="print-queue-head">
+                            <div class="print-queue-title">
+                                <span>打印队列</span>
+                                <small>{{ defaultPrinter || '默认打印机' }} · {{ printJobs.length }} 项</small>
+                            </div>
+                            <button class="print-queue-close" type="button" title="关闭打印队列" @click.stop="collapsePrintQueue()">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="print-job-list">
+                            <div v-for="job in printJobs" :key="job.jobId" class="print-job-row">
+                                <div class="print-job-main">
+                                    <span class="print-job-document" :title="job.document">{{ job.document || '未命名文档' }}</span>
+                                    <span class="print-job-status">{{ job.status || '排队中' }}</span>
+                                </div>
+                                <div class="print-job-meta">
+                                    <span>{{ job.pagesPrinted }} / {{ job.totalPages || '?' }} 页</span>
+                                    <span v-if="job.printer && job.printer !== defaultPrinter">{{ job.printer }}</span>
+                                </div>
+                                <div class="print-job-progress" :class="{ 'unknown': job.totalPages <= 0 }">
+                                    <span :style="{ width: `${printJobProgress(job)}%` }"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div v-else-if="showSpectrumIndicator" class="audio-spectrum"
                         :class="{ 'is-playing': isPlaying, 'expanded': isMusicExpanded }" key="spectrum">
                         <span class="bar" v-for="(val, index) in spectrumData" :key="index"
@@ -430,6 +460,29 @@ const isHealthAlerting = ref(false);
 const healthAlertLabel = ref('');
 const healthAlertType = ref<'sitting' | 'water'>('sitting');
 
+// 打印队列相关变量（由后端 print-queue-tick 事件驱动）
+type PrintJob = {
+    jobId: number;
+    document: string;
+    printer: string;
+    pagesPrinted: number;
+    totalPages: number;
+    position: number;
+    status: string;
+    submitted: number;
+};
+
+type PrintQueueState = {
+    hasJobs: boolean;
+    defaultPrinter: string;
+    jobs: PrintJob[];
+};
+
+const printJobs = ref<PrintJob[]>([]);
+const defaultPrinter = ref('');
+const isPrintQueueActive = computed(() => printJobs.value.length > 0);
+const isPrintQueueExpanded = ref(false);
+
 // 全屏自动隐藏相关
 const isAutoHideFullscreen = ref(localStorage.getItem(NSD_AUTO_HIDE_FS) === 'true');
 let wasVisibleBeforeFullscreen = false;
@@ -481,7 +534,7 @@ const isSplitMode = computed(() => {
 
 // ===== 多实时活动并行：单图标轮换 + 点击展开 + X 回退 =====
 // RT_IDS: 参与轮换的四种实时活动 id（顺序固定，作为 priority 平局时的稳定排序键）
-const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health'] as const;
+const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health', 'printer'] as const;
 type RtId = typeof RT_IDS[number];
 
 // 各活动的图标与配色（与 LiveActive 的 activities 对应保持一致）
@@ -502,6 +555,10 @@ const RT_META: Record<RtId, { icon: string; accent: string }> = {
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>',
         accent: '#10b981',
     },
+    printer: {
+        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>',
+        accent: '#8b5cf6',
+    },
 };
 
 // 跨窗口同步来的配置（由 LiveActive emit('control-activity-config') 推送；启动时也从 localStorage 兜底读取）
@@ -513,6 +570,7 @@ const rtActive = computed(() => ({
     countdown: isCountdownVisible.value,
     hardware: hwEnabled.value,            // 硬件"活跃" = 监控开启
     health:   isHealthAlerting.value,
+    printer: isPrintQueueActive.value,
 }));
 
 // 候选集（enabled && active，按 priority 升序 + 固定顺序平局打破）
@@ -563,6 +621,7 @@ function clickRtChip(targetId?: string) {
             expandedRtId.value = targetId;
             previousContext.value = isPlaying.value ? 'music' : 'chip';
             if (targetId === 'hardware') expandHardware();
+            if (targetId === 'printer') expandPrintQueue();
             return;
         }
     } else {
@@ -584,6 +643,8 @@ function clickRtChip(targetId?: string) {
         isCountdownExpanded.value = true;
         const { w, h } = getBaseSize();
         animateIslandSize(w + 80, h);
+    } else if (target.id === 'printer') {
+        expandPrintQueue();
     }
     // 'health' 无需手动展开（alerting 时由 health-reminder-tick 自动驱动 isHealthAlerting）
 }
@@ -1264,6 +1325,39 @@ const collapseHardware = () => {
     scheduleAutoHide();
 };
 
+const printJobProgress = (job: PrintJob) => {
+    if (job.totalPages <= 0) return 0;
+    return Math.min(100, Math.round((job.pagesPrinted / job.totalPages) * 100));
+};
+
+const expandPrintQueue = () => {
+    if (!isPrintQueueActive.value || isPrintQueueExpanded.value) return;
+    suppressContentWatch = true;
+    isPrintQueueExpanded.value = true;
+    expandedRtId.value = 'printer';
+    const { w, h } = getBaseSize();
+    // 最多展示两项高度，更多作业在详情内滚动。
+    animateIslandSize(w + 220, h + Math.min(printJobs.value.length, 2) * 38);
+    setTimeout(() => { suppressContentWatch = false; }, 600);
+};
+
+const collapsePrintQueue = (restore = true) => {
+    if (!isPrintQueueExpanded.value) return;
+    suppressContentWatch = true;
+    isPrintQueueExpanded.value = false;
+    if (expandedRtId.value === 'printer') {
+        expandedRtId.value = null;
+    }
+    if (restore) {
+        const { h } = getBaseSize();
+        const savedWidth = restoreIslandWidth();
+        const targetWidth = savedWidth !== null ? savedWidth : currentWidth.value;
+        animateIslandSize(targetWidth, h);
+        scheduleAutoHide();
+    }
+    setTimeout(() => { suppressContentWatch = false; }, 600);
+};
+
 // 统一折叠所有已展开的实时活动，避免多活动并行时状态残留导致关闭按钮/切换异常
 const collapseAllExpandedActivities = () => {
     if (isPomodoroExpanded.value) {
@@ -1274,6 +1368,9 @@ const collapseAllExpandedActivities = () => {
     }
     if (isHardwareExpanded.value) {
         collapseHardware();
+    }
+    if (isPrintQueueExpanded.value) {
+        collapsePrintQueue(false);
     }
     // health 由 isHealthAlerting 事件驱动，不在此处手动置位
 };
@@ -2991,6 +3088,26 @@ onMounted(async () => {
         }
     });
 
+    // 打印队列：订阅后先读取快照，避免后端启动 emit 早于前端窗口订阅。
+    unlistenFns.push(await listen<PrintQueueState>('print-queue-tick', (event) => {
+        const state = event.payload;
+        printJobs.value = Array.isArray(state?.jobs) ? state.jobs : [];
+        defaultPrinter.value = state?.defaultPrinter || '';
+        if (!printJobs.value.length && isPrintQueueExpanded.value) {
+            collapsePrintQueue();
+            if (expandedRtId.value === 'printer') {
+                revertRealtime();
+            }
+        }
+    }));
+    try {
+        const state = await invoke<PrintQueueState>('get_printer_state');
+        printJobs.value = Array.isArray(state?.jobs) ? state.jobs : [];
+        defaultPrinter.value = state?.defaultPrinter || '';
+    } catch (_e) {
+        // 后端打印模块不可用时保持空队列。
+    }
+
     // 监听后端番茄钟 tick 事件
     await listen<any>('pomodoro-tick', async (event) => {
         const p = event.payload;
@@ -3720,6 +3837,143 @@ onUnmounted(() => {
     width: 14px;
     height: 14px;
 }
+
+/* 打印队列展开态 */
+.print-queue-detail {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    padding: 5px 30px 5px 8px;
+    gap: 4px;
+    box-sizing: border-box;
+}
+
+.print-queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-width: 0;
+}
+
+.print-queue-title {
+    display: flex;
+    align-items: baseline;
+    min-width: 0;
+    gap: 6px;
+    color: #c4b5fd;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.print-queue-title small {
+    min-width: 0;
+    overflow: hidden;
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 9px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.print-queue-close {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    display: flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #888;
+    cursor: pointer;
+    transform: translateY(-50%);
+}
+
+.print-queue-close:hover {
+    background: rgba(139, 92, 246, 0.2);
+    color: #c4b5fd;
+}
+
+.print-queue-close svg {
+    width: 14px;
+    height: 14px;
+}
+
+.print-job-list {
+    display: flex;
+    max-height: 76px;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    padding-right: 2px;
+}
+
+.print-job-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 1px 8px;
+    min-width: 0;
+}
+
+.print-job-main,
+.print-job-meta {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 5px;
+}
+
+.print-job-document {
+    overflow: hidden;
+    font-size: 10px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.print-job-status,
+.print-job-meta {
+    color: rgba(255, 255, 255, 0.58);
+    font-size: 9px;
+}
+
+.print-job-status {
+    color: #c4b5fd;
+    white-space: nowrap;
+}
+
+.print-job-meta {
+    justify-content: flex-end;
+    white-space: nowrap;
+}
+
+.print-job-progress {
+    grid-column: 1 / -1;
+    height: 3px;
+    overflow: hidden;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.print-job-progress span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #8b5cf6;
+    transition: width 0.25s ease;
+}
+
+.print-job-progress.unknown span {
+    width: 35% !important;
+    background: rgba(139, 92, 246, 0.6);
+}
+
 .music-ctl-box {
     justify-content: flex-start;
 }

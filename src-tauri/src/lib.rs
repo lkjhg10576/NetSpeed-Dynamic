@@ -5,6 +5,7 @@ mod pomodoro;
 mod countdown;
 mod health_reminder;
 mod system_events;
+mod print_queue;
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicBool, Ordering};
@@ -594,6 +595,8 @@ pub fn run() {
             system_events::set_system_event_filter,
             set_network_latency_interval,
             save_csv_file,
+            print_queue::set_printer_monitor_enabled,
+            print_queue::get_printer_state,
         ])
         .setup(|app| {
             // B8: 注册 AppHandle 到 audio_spectrum 模块，支持 emit 频谱事件
@@ -607,6 +610,7 @@ pub fn run() {
             pomodoro::start_pomodoro_thread(app.handle().clone());
             countdown::start_countdown_thread(app.handle().clone());
             health_reminder::start_health_reminder_thread(app.handle().clone());
+            print_queue::start_print_queue_monitor(app.handle().clone());
             start_hardware_monitor(app.handle().clone());
 
             // 全屏应用检测线程

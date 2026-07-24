@@ -492,6 +492,7 @@ import {
     NSD_WATER_REMINDER_ENABLED,
     NSD_WATER_REMINDER_SECS,
     NSD_ACTIVITY_PRIORITY,
+    NSD_PRINTER_MONITOR_ENABLED,
     NSD_SYSMSG_ENABLED,
     NSD_SYSMSG_VOLUME_ENABLED,
     NSD_SYSMSG_POWER_ENABLED,
@@ -559,6 +560,11 @@ const srRemainingSeconds = ref(0);
 const srCanSkip = ref(true);
 const wrEnabled = ref(localStorage.getItem(NSD_WATER_REMINDER_ENABLED) === 'true');
 const wrMinutes = ref(Number(localStorage.getItem(NSD_WATER_REMINDER_SECS) || '120'));
+
+// 打印队列监控开关（默认开启，持久化）
+const printerEnabled = ref(
+    localStorage.getItem(NSD_PRINTER_MONITOR_ENABLED) !== 'false'
+);
 const wrActive = ref(false);
 const wrAlerting = ref(false);
 const wrRemainingSeconds = ref(0);
@@ -1020,16 +1026,16 @@ const activities = ref([
         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>',
         title: '打印机队列',
         desc: '批量打印进度状态',
-        accent: '#ff4757',
+        accent: '#8b5cf6',
         enabled: false,
-        disable: true,
-        priority: 99,
+        disable: false,
+        priority: 5,
     },
 ]);
 
 // ===== 实时活动优先级同步 =====
-// RT_IDS: 参与"多活动并行轮换"的四种实时活动 id（顺序固定，作为 priority 平局时的稳定排序键）
-const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health'] as const;
+// RT_IDS: 参与"多活动并行轮换"的实时活动 id（顺序固定，作为 priority 平局时的稳定排序键）
+const RT_IDS = ['pomodoro', 'countdown', 'hardware', 'health', 'printer'] as const;
 
 // 当前正在编辑优先级的活动 id（用于显示提示文字）
 const focusedPriority = ref<string | null>(null);
@@ -1067,6 +1073,7 @@ function buildActivityConfig(): Record<string, { enabled: boolean; priority: num
         countdown: cdRunning.value,
         hardware: hwEnabled.value,
         health: srEnabled.value || wrEnabled.value,
+        printer: printerEnabled.value,
     };
     for (const id of RT_IDS) {
         const item = activities.value.find(a => a.id === id);
@@ -1295,10 +1302,24 @@ onMounted(async () => {
     // 下发已持久化的延迟探测间隔
     applyNetworkLatencyInterval();
 
+    // 下发打印机监控开关到后端（保持卡片与后台一致）
+    try {
+        await invoke('set_printer_monitor_enabled', { enabled: printerEnabled.value });
+    } catch (_e) {
+        // 命令尚未注册时忽略
+    }
+
     // 监听各活动 enabled 状态变化，自动同步配置到灵动岛
-    watch([isPomoRunning, cdRunning, hwEnabled, srEnabled, wrEnabled], () => {
-        syncActivityConfig();
-    });
+    watch(
+        [isPomoRunning, cdRunning, hwEnabled, srEnabled, wrEnabled, printerEnabled],
+        async () => {
+            localStorage.setItem(NSD_PRINTER_MONITOR_ENABLED, String(printerEnabled.value));
+            try {
+                await invoke('set_printer_monitor_enabled', { enabled: printerEnabled.value });
+            } catch (_e) {}
+            syncActivityConfig();
+        }
+    );
 
     nextTick(() => { checkScroll(); });
     window.addEventListener('resize', checkScroll);

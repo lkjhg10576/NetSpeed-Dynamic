@@ -70,6 +70,7 @@ export const NSD_HW_MODE = 'nsd_hw_mode'; // 'dual' | 'rotation' | 'single'
 export const NSD_HW_DEFAULT_METRIC = 'nsd_hw_default_metric'; // 'cpu' | 'mem'
 export const NSD_HW_ROTATION = 'nsd_hw_rotation'; // 轮换模式开关（兼容旧名）
 export const NSD_HW_DUAL_RING = 'nsd_hw_dual_ring'; // 双圆环模式开关（兼容旧名）
+export const NSD_PRINTER_MONITOR_ENABLED = 'nsd_printer_monitor_enabled';
 
 // 健康提醒
 export const NSD_SITTING_REMINDER_ENABLED = 'nsd_sitting_reminder_enabled';
