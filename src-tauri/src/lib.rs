@@ -711,7 +711,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("NetSpeed Dynamic Pro")
+                .tooltip("Music Dynamic Island")
                 .menu(&tray_menu)
                 .on_menu_event(move |_app_handle, event| {
                     if event.id == "quit" { std::process::exit(0); }
